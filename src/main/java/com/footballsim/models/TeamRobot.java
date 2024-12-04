@@ -31,12 +31,13 @@ public class TeamRobot extends AbstractRobot {
         super(x, y, 3.0, 100.0); // Standard speed and sensor range
         this.isRedTeam = isRedTeam;
         this.currentRole = RobotRole.ATTACKER; // Default role
+
+        // Set initial rotation based on team
+        this.rotation = isRedTeam ? 0 : 180; // Red team faces right, blue team faces left
     }
 
     /**
      * Updates the robot's position and behavior
-     * @param ball The game ball
-     * @param obstacles List of obstacles in the arena
      */
     @Override
     public void update() {
@@ -118,7 +119,8 @@ public class TeamRobot extends AbstractRobot {
      * @param opponents List of opponent robots
      */
     public void updateBehavior(Ball ball, List<AbstractArenaObject> obstacles,
-            List<TeamRobot> teammates, List<TeamRobot> opponents) {
+                               List<TeamRobot> teammates, List<TeamRobot> opponents) {
+
         switch (currentRole) {
             case GOALKEEPER:
                 updateGoalkeeper(ball);
@@ -130,54 +132,134 @@ public class TeamRobot extends AbstractRobot {
                 updateAttacker(ball, obstacles);
                 break;
         }
+
+        // Update position based on movement
+        super.update();
     }
 
     private void updateGoalkeeper(Ball ball) {
+        // Stay on goal line but move up/down based on ball position
         double targetY = ball.getY();
-        if (Math.abs(y - targetY) > 5) {
-            if (y < targetY)
-                accelerate();
-            else
-                brake();
+        double currentY = y + height/2;
+
+        // Only move vertically
+        if (Math.abs(currentY - targetY) > 5) {
+            // Move towards ball's Y position
+            rotation = (currentY > targetY) ? 270 : 90;
+            accelerate();
+        } else {
+            brake();
         }
     }
 
+
     private void updateDefender(Ball ball, List<TeamRobot> opponents) {
-        TeamRobot nearestOpponent = findNearestOpponent(opponents);
-        if (nearestOpponent != null) {
-            // Calculate intercept position
-            double interceptX = (nearestOpponent.getX() + ball.getX()) / 2;
-            double interceptY = (nearestOpponent.getY() + ball.getY()) / 2;
-            
-            // Move to intercept position
-            double targetAngle = Math.toDegrees(Math.atan2(
-                interceptY - y, interceptX - x));
-            turn(targetAngle - rotation);
-            
-            if (!detectObstacle(nearestOpponent)) {
+        double ballX = ball.getX();
+        double ballY = ball.getY();
+
+        // Calculate whether ball is in our half
+        boolean ballInOurHalf = isRedTeam ?
+                ballX < x : // For red team, our half is left side
+                ballX > x;  // For blue team, our half is right side
+
+        if (ballInOurHalf) {
+            // Move to intercept ball
+            double angleToTarget = calculateAngleToBall(ball);
+            double angleDiff = normalizeAngle(angleToTarget - rotation);
+
+            // Turn towards ball
+            if (Math.abs(angleDiff) > 10) {
+                turn(angleDiff > 0 ? turnRate : -turnRate);
+            }
+
+            // Move towards ball if facing it
+            if (Math.abs(angleDiff) < 45) {
                 accelerate();
             } else {
                 brake();
             }
+        } else {
+            // Return to defensive position
+            moveToDefensivePosition();
         }
     }
 
     private void updateAttacker(Ball ball, List<AbstractArenaObject> obstacles) {
-        double targetAngle = calculateAngleToBall(ball);
-        turn(targetAngle - rotation);
+        double ballX = ball.getX();
+        double ballY = ball.getY();
 
-        boolean obstacleAhead = false;
+        // Calculate angle to ball
+        double angleToTarget = calculateAngleToBall(ball);
+        double angleDiff = normalizeAngle(angleToTarget - rotation);
+
+        // Check if path to ball is clear
+        boolean pathClear = true;
         for (AbstractArenaObject obstacle : obstacles) {
             if (detectObstacle(obstacle)) {
-                obstacleAhead = true;
+                pathClear = false;
                 break;
             }
         }
 
-        if (!obstacleAhead)
-            accelerate();
-        else
+        if (pathClear) {
+            // Move towards ball
+            if (Math.abs(angleDiff) > 10) {
+                turn(angleDiff > 0 ? turnRate : -turnRate);
+            }
+
+            // Only move forward if roughly facing the ball
+            if (Math.abs(angleDiff) < 45) {
+                accelerate();
+            } else {
+                brake();
+            }
+        } else {
+            // Obstacle avoidance
+            // Turn away from detected obstacles
+            turn(45);
             brake();
+        }
+    }
+
+    /**
+     * Calculates angle to ball
+     */
+    private double calculateAngleToBall(Ball ball) {
+        double dx = ball.getX() - (x + width/2);
+        double dy = ball.getY() - (y + height/2);
+        return Math.toDegrees(Math.atan2(dy, dx));
+    }
+
+    /**
+     * Normalizes angle to -180 to 180 range
+     */
+    private double normalizeAngle(double angle) {
+        while (angle > 180) angle -= 360;
+        while (angle < -180) angle += 360;
+        return angle;
+    }
+
+    /**
+     * Moves robot to defensive position
+     */
+    private void moveToDefensivePosition() {
+        // Calculate default defensive position based on team
+        double targetX = isRedTeam ?
+                x - 50 : // Red team moves left
+                x + 50;  // Blue team moves right
+
+        double angleToPosition = Math.toDegrees(Math.atan2(0, targetX - x));
+        double angleDiff = normalizeAngle(angleToPosition - rotation);
+
+        if (Math.abs(angleDiff) > 10) {
+            turn(angleDiff > 0 ? turnRate : -turnRate);
+        }
+
+        if (Math.abs(angleDiff) < 45) {
+            accelerate();
+        } else {
+            brake();
+        }
     }
 
     private TeamRobot findNearestOpponent(List<TeamRobot> opponents) {
@@ -193,12 +275,6 @@ public class TeamRobot extends AbstractRobot {
         }
 
         return nearest;
-    }
-
-    private double calculateAngleToBall(Ball ball) {
-        double dx = ball.getX() - x;
-        double dy = ball.getY() - y;
-        return Math.toDegrees(Math.atan2(dy, dx));
     }
 
     // Getters and setters

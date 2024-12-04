@@ -20,22 +20,49 @@ public class Ball {
     }
 
     public void update(double fieldWidth, double fieldHeight, double borderWidth) {
-        // Update position
+        // Update position based on velocity
         x += dx;
         y += dy;
 
+        // Handle boundary collisions
+        double goalTop = (fieldHeight - 60) / 2 + borderWidth;
+        double goalBottom = goalTop + 60;
+
+        // Left boundary (including goal)
+        if (x - radius < borderWidth) {
+            // Check if ball is at goal height
+            if (y < goalTop || y > goalBottom) {
+                x = borderWidth + radius;
+                dx = -dx * 0.8; // Bounce with energy loss
+            }
+        }
+
+        // Right boundary (including goal)
+        if (x + radius > fieldWidth + borderWidth) {
+            // Check if ball is at goal height
+            if (y < goalTop || y > goalBottom) {
+                x = fieldWidth + borderWidth - radius;
+                dx = -dx * 0.8;
+            }
+        }
+
+        // Top and bottom boundaries
+        if (y - radius < borderWidth) {
+            y = borderWidth + radius;
+            dy = -dy * 0.8;
+        }
+        if (y + radius > fieldHeight + borderWidth) {
+            y = fieldHeight + borderWidth - radius;
+            dy = -dy * 0.8;
+        }
+
         // Apply friction
-        dx *= friction;
-        dy *= friction;
+        dx *= 0.99;
+        dy *= 0.99;
 
-        // Stop if moving very slowly
-        if (Math.abs(dx) < 0.01)
-            dx = 0;
-        if (Math.abs(dy) < 0.01)
-            dy = 0;
-
-        // Boundary collisions
-        handleBoundaryCollision(fieldWidth, fieldHeight, borderWidth);
+        // Stop ball if moving very slowly
+        if (Math.abs(dx) < 0.01) dx = 0;
+        if (Math.abs(dy) < 0.01) dy = 0;
     }
 
     private void handleBoundaryCollision(double fieldWidth, double fieldHeight, double borderWidth) {

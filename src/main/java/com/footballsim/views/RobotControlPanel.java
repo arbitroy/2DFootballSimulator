@@ -5,12 +5,17 @@ import javafx.scene.control.*;
 import javafx.scene.layout.*;
 import com.footballsim.models.TeamRobot;
 
+/**
+ * Panel for controlling robot creation and configuration
+ */
 public class RobotControlPanel extends VBox {
     private ToggleGroup teamToggle;
-    private Spinner<Double> speedSpinner;
-    private Spinner<Double> sensorRangeSpinner;
+    private ComboBox<TeamRobot.RobotRole> roleComboBox;
     private ListView<String> robotList;
 
+    /**
+     * Creates a new robot control panel
+     */
     public RobotControlPanel() {
         setPadding(new Insets(10));
         setSpacing(10);
@@ -25,64 +30,63 @@ public class RobotControlPanel extends VBox {
         blueTeam.setToggleGroup(teamToggle);
         redTeam.setSelected(true);
 
-        // Robot properties
-        Label speedLabel = new Label("Robot Speed:");
-        speedSpinner = new Spinner<>(0.1, 5.0, 1.0, 0.1);
-        speedSpinner.setEditable(true);
-
-        Label sensorLabel = new Label("Sensor Range:");
-        sensorRangeSpinner = new Spinner<>(10.0, 100.0, 50.0, 5.0);
-        sensorRangeSpinner.setEditable(true);
+        // Role selection
+        Label roleLabel = new Label("Robot Role:");
+        roleComboBox = new ComboBox<>();
+        roleComboBox.getItems().addAll(TeamRobot.RobotRole.values());
+        roleComboBox.setValue(TeamRobot.RobotRole.ATTACKER);
 
         // Robot list
         Label robotsLabel = new Label("Active Robots:");
         robotList = new ListView<>();
         robotList.setPrefHeight(200);
 
-        Button addButton = new Button("Add Robot");
-        Button removeButton = new Button("Remove Selected");
-
-        addButton.setOnAction(e -> addRobot());
-        removeButton.setOnAction(e -> removeSelectedRobot());
-
         getChildren().addAll(
             teamLabel, redTeam, blueTeam,
             new Separator(),
-            speedLabel, speedSpinner,
-            sensorLabel, sensorRangeSpinner,
+            roleLabel, roleComboBox,
             new Separator(),
-            robotsLabel, robotList,
-            addButton, removeButton
+            robotsLabel, robotList
         );
     }
 
-    public void addRobot(boolean isRedTeam) {
-        // Create new robot with current settings
-        TeamRobot robot = new TeamRobot(
-            300, // Default x position
-            200, // Default y position
-            isRedTeam
-        );
-        robot.setRole(TeamRobot.RobotRole.ATTACKER); // Default role
-        
-        // Add to list
-        String robotName = (isRedTeam ? "Red" : "Blue") + " Robot " + (robotList.getItems().size() + 1);
-        robotList.getItems().add(robotName);
-    }
-
-    private void addRobot() {
-        // Get current team selection
+    /**
+     * Gets whether red team is selected
+     * @return true if red team is selected
+     */
+    public boolean isRedTeamSelected() {
         RadioButton selectedTeam = (RadioButton) teamToggle.getSelectedToggle();
-        boolean isRedTeam = selectedTeam.getText().equals("Red Team");
-        
-        // Add robot with appropriate team
-        addRobot(isRedTeam);
+        return selectedTeam.getText().equals("Red Team");
     }
 
-    private void removeSelectedRobot() {
-        int selectedIndex = robotList.getSelectionModel().getSelectedIndex();
-        if (selectedIndex >= 0) {
-            robotList.getItems().remove(selectedIndex);
+    /**
+     * Gets the currently selected robot role
+     * @return Selected robot role
+     */
+    public TeamRobot.RobotRole getSelectedRole() {
+        return roleComboBox.getValue();
+    }
+
+    /**
+     * Updates the robot list display
+     * @param redTeamCount Number of red team robots
+     * @param blueTeamCount Number of blue team robots
+     */
+    public void updateRobotCounts(int redTeamCount, int blueTeamCount) {
+        robotList.getItems().clear();
+        for (int i = 0; i < redTeamCount; i++) {
+            robotList.getItems().add("Red Team Robot " + (i + 1));
         }
+        for (int i = 0; i < blueTeamCount; i++) {
+            robotList.getItems().add("Blue Team Robot " + (i + 1));
+        }
+    }
+
+    /**
+     * Gets the index of the selected robot in the list
+     * @return Selected index or -1 if none selected
+     */
+    public int getSelectedRobotIndex() {
+        return robotList.getSelectionModel().getSelectedIndex();
     }
 }

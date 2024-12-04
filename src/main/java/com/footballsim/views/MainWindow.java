@@ -57,38 +57,48 @@ public class MainWindow {
      * Initializes all UI components and controllers
      */
     private void initializeComponents() {
-        // Initialize all UI components first
+        // Initialize root container first
         root = new VBox();
-        menuBar = createMenuBar();
-
-        // Create main game components
+        
+        // Initialize canvas first as other components depend on it
         arenaCanvas = new ArenaCanvas();
+        
+        // Initialize panels with dependencies
         settingsPanel = new GameSettingsPanel();
         robotPanel = new RobotControlPanel();
         obstaclePanel = new ObstacleControlPanel();
         configPanel = new ConfigPanel(arenaCanvas);
-
-        // Create toolbar
-        toolBar = createToolBar();
-
-        // Initialize game coordinator last, after all components are created
-        gameCoordinator = new GameCoordinator(arenaCanvas, settingsPanel, robotPanel);
-
-        // Connect toolbar buttons to coordinator
+        
+        // Initialize game coordinator last
+        gameCoordinator = new GameCoordinator(
+            arenaCanvas, 
+            settingsPanel, 
+            robotPanel
+        );
+        
+        // Wire up start/pause buttons
+        startButton = new Button("Start");
+        pauseButton = new Button("Pause");
+        pauseButton.setDisable(true);
+    
         startButton.setOnAction(e -> {
             gameCoordinator.startGame();
+            gameCoordinator.render();
             startButton.setDisable(true);
             pauseButton.setDisable(false);
         });
-
+    
         pauseButton.setOnAction(e -> {
             gameCoordinator.stopGame();
             startButton.setDisable(false);
             pauseButton.setDisable(true);
         });
-
-        // Connect config panel to coordinator
-        configPanel.setOnDimensionsChanged((width, height) -> gameCoordinator.updateFieldDimensions(width, height));
+        
+        // Create toolbar with proper references
+        toolBar = createToolBar();
+        
+        // Create menu bar
+        menuBar = createMenuBar();
     }
 
     /**
@@ -130,42 +140,62 @@ public class MainWindow {
      */
     private ToolBar createToolBar() {
         ToolBar toolBar = new ToolBar();
-
-        startButton = new Button("Start");
-        pauseButton = new Button("Pause");
-        pauseButton.setDisable(true);
-
-        Button addRedRobotButton = new Button("Add Red Robot");
-        Button addBlueRobotButton = new Button("Add Blue Robot");
+    
         Button addObstacleButton = new Button("Add Obstacle");
         Button removeButton = new Button("Remove Selected");
-
-      addRedRobotButton.setOnAction(e -> {
-    TeamRobot robot = robotManager.addRobot(true, TeamRobot.RobotRole.ATTACKER);
-    robotPanel.addRobot(true); // Updates the UI list
-});
-
-addBlueRobotButton.setOnAction(e -> {
-    TeamRobot robot = robotManager.addRobot(false, TeamRobot.RobotRole.ATTACKER);
-    robotPanel.addRobot(false); // Updates the UI list
-});
+    
+        Button addRobotButton = new Button("Add Robot");
+        addRobotButton.setOnAction(e -> {
+            boolean isRedTeam = robotPanel.isRedTeamSelected();
+            TeamRobot.RobotRole role = robotPanel.getSelectedRole();
+            gameCoordinator.addRobot(isRedTeam, role);
+            robotPanel.updateRobotCounts(
+                gameCoordinator.getRedTeamCount(),
+                gameCoordinator.getBlueTeamCount()
+            );
+        });
+    
+        Button removeRobotButton = new Button("Remove Robot");
+        removeRobotButton.setOnAction(e -> {
+            int selectedIndex = robotPanel.getSelectedRobotIndex();
+            if (selectedIndex >= 0) {
+                gameCoordinator.removeRobot(selectedIndex);
+                robotPanel.updateRobotCounts(
+                    gameCoordinator.getRedTeamCount(),
+                    gameCoordinator.getBlueTeamCount()
+                );
+            }
+        });
+    
         addObstacleButton.setOnAction(e -> obstaclePanel.addObstacle());
         removeButton.setOnAction(e -> gameCoordinator.removeSelectedObject());
-
+    
         Button helpButton = new Button("Show Tutorial");
         helpButton.setOnAction(e -> new TutorialOverlay(stage).show());
 
+        Button setupTeamsButton = new Button("Setup Teams");
+        setupTeamsButton.setOnAction(e -> {
+            gameCoordinator.setupPlayerTeam();
+            gameCoordinator.setupOpposingTeam();
+            robotPanel.updateRobotCounts(
+                    gameCoordinator.getRedTeamCount(),
+                    gameCoordinator.getBlueTeamCount()
+            );
+        });
+    
         toolBar.getItems().addAll(
-                startButton,
-                pauseButton,
-                new Separator(),
-                addRedRobotButton,
-                addBlueRobotButton,
-                addObstacleButton,
-                removeButton,
-                new Separator(),
-                helpButton);
-
+            startButton,
+            pauseButton,
+            new Separator(),
+                setupTeamsButton,
+            addRobotButton,
+            removeRobotButton,
+            addObstacleButton,
+            removeButton,
+            new Separator(),
+            helpButton
+        );
+    
         return toolBar;
     }
 
@@ -346,6 +376,5 @@ addBlueRobotButton.setOnAction(e -> {
     public void show() {
         stage.show();
     }
-
 
 }

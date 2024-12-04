@@ -28,7 +28,6 @@ public class GameCoordinator {
     private final FormationManager blueTeamFormation;
     private final GameSettingsPanel settingsPanel;
     private final RobotControlPanel robotPanel;
-    private final RobotManager robotManager;
 
     // Constants for rendering
     private static final Color FIELD_COLOR = Color.LIGHTGREEN;
@@ -60,13 +59,13 @@ public class GameCoordinator {
         // Initialize core components
         this.fieldManager = new FieldManager(arenaCanvas.getFieldWidth(),
                 arenaCanvas.getFieldHeight(), 20, 60);
-        this.gameController = new GameController(fieldManager.getWidth(),
-                fieldManager.getHeight());
+                this.gameController = new GameController(
+                    arenaCanvas.getFieldWidth(),
+                    arenaCanvas.getFieldHeight()
+                );
         this.gameLoop = new GameLoop(gameController, this);
         this.redTeamFormation = new FormationManager(fieldManager, true);
         this.blueTeamFormation = new FormationManager(fieldManager, false);
-        this.showDebugInfo = false;
-        this.robotManager = new RobotManager(fieldWidth, fieldHeight, borderWidth);
 
         setupEventHandlers();
 
@@ -75,18 +74,20 @@ public class GameCoordinator {
             @Override
             public void onGoalScored(boolean redTeam) {
                 Platform.runLater(() -> {
-                    settingsPanel.updateScore(gameController.getRedScore(),
-                            gameController.getBlueScore());
+                    settingsPanel.updateScore(
+                        gameController.getRedScore(),
+                        gameController.getBlueScore()
+                    );
                 });
             }
-
+    
             @Override
             public void onTimeUpdated(int minutes, int seconds) {
                 Platform.runLater(() -> {
                     settingsPanel.updateTimer(minutes, seconds);
                 });
             }
-
+    
             @Override
             public void onGameEnd(boolean redTeamWon) {
                 Platform.runLater(() -> {
@@ -267,29 +268,18 @@ public class GameCoordinator {
      * Sets up mouse and interaction event handlers
      */
     private void setupEventHandlers() {
-        // Mouse handlers for robot placement and ball kicks
+        // Remove existing handlers first
+        arenaCanvas.setOnMousePressed(null);
+        arenaCanvas.setOnMouseDragged(null);
+        arenaCanvas.setOnMouseReleased(null);
+
+        // Add new handlers
         arenaCanvas.setOnMousePressed(this::handleMousePressed);
         arenaCanvas.setOnMouseDragged(this::handleMouseDragged);
         arenaCanvas.setOnMouseReleased(this::handleMouseReleased);
 
-        // Game controller event listeners
-        gameController.addEventListener(new GameController.GameEventListener() {
-            @Override
-            public void onGoalScored(boolean redTeam) {
-                settingsPanel.updateScore(gameController.getRedScore(), gameController.getBlueScore());
-            }
-
-            @Override
-            public void onTimeUpdated(int minutes, int seconds) {
-                settingsPanel.updateTimer(minutes, seconds);
-            }
-
-            @Override
-            public void onGameEnd(boolean redTeamWon) {
-                stopGame();
-                showGameEndDialog(redTeamWon);
-            }
-        });
+        // Make sure canvas can receive input
+        arenaCanvas.setFocusTraversable(true);
     }
 
 
@@ -301,15 +291,22 @@ public class GameCoordinator {
         clearCanvas(gc);
         drawField(gc);
         drawBall(gc);
-        robotManager.drawRobots(gc);
+        drawRobots(gc);      // Make sure this is called
         drawObstacles(gc);
+
+        if (selectedRobot != null) {
+            drawSelectionIndicator(gc, selectedRobot);
+        }
     }
+
 
     public void startGame() {
         updateLock.lock();
         try {
+            gameController.startGame();
             gameLoop.start();
             gameRunning = true;
+            System.out.println("Game started");
         } finally {
             updateLock.unlock();
         }
@@ -322,6 +319,83 @@ public class GameCoordinator {
             gameRunning = false;
         } finally {
             updateLock.unlock();
+        }
+    }
+
+    /**
+     * Sets up basic opposing team
+     */
+    public void setupOpposingTeam() {
+        // Get field dimensions for positioning
+        double fieldStartX = fieldManager.getBoundaries()[0].getXY()[0];
+        double fieldStartY = fieldManager.getBoundaries()[0].getXY()[1];
+        double fieldWidth = fieldManager.getWidth();
+        double fieldHeight = fieldManager.getHeight();
+
+        // Create basic formation - 1 goalkeeper, 2 defenders, 2 attackers
+        double[][] positions = {
+                {fieldWidth * 0.9, fieldHeight * 0.5},     // Goalkeeper
+                {fieldWidth * 0.7, fieldHeight * 0.3},     // Defender 1
+                {fieldWidth * 0.7, fieldHeight * 0.7},     // Defender 2
+                {fieldWidth * 0.6, fieldHeight * 0.4},     // Attacker 1
+                {fieldWidth * 0.6, fieldHeight * 0.6}      // Attacker 2
+        };
+
+        TeamRobot.RobotRole[] roles = {
+                TeamRobot.RobotRole.GOALKEEPER,
+                TeamRobot.RobotRole.DEFENDER,
+                TeamRobot.RobotRole.DEFENDER,
+                TeamRobot.RobotRole.ATTACKER,
+                TeamRobot.RobotRole.ATTACKER
+        };
+
+        // Create and add opposing team robots
+        for (int i = 0; i < positions.length; i++) {
+            TeamRobot robot = new TeamRobot(
+                    fieldStartX + positions[i][0],
+                    fieldStartY + positions[i][1],
+                    false  // Blue team
+            );
+            robot.setRole(roles[i]);
+            gameController.addRobot(robot);
+        }
+    }
+
+    /**
+     * Sets up initial player team
+     */
+    public void setupPlayerTeam() {
+        // Mirror positions for player team
+        double fieldStartX = fieldManager.getBoundaries()[0].getXY()[0];
+        double fieldStartY = fieldManager.getBoundaries()[0].getXY()[1];
+        double fieldWidth = fieldManager.getWidth();
+        double fieldHeight = fieldManager.getHeight();
+
+        double[][] positions = {
+                {fieldWidth * 0.1, fieldHeight * 0.5},     // Goalkeeper
+                {fieldWidth * 0.3, fieldHeight * 0.3},     // Defender 1
+                {fieldWidth * 0.3, fieldHeight * 0.7},     // Defender 2
+                {fieldWidth * 0.4, fieldHeight * 0.4},     // Attacker 1
+                {fieldWidth * 0.4, fieldHeight * 0.6}      // Attacker 2
+        };
+
+        TeamRobot.RobotRole[] roles = {
+                TeamRobot.RobotRole.GOALKEEPER,
+                TeamRobot.RobotRole.DEFENDER,
+                TeamRobot.RobotRole.DEFENDER,
+                TeamRobot.RobotRole.ATTACKER,
+                TeamRobot.RobotRole.ATTACKER
+        };
+
+        // Create and add player team robots
+        for (int i = 0; i < positions.length; i++) {
+            TeamRobot robot = new TeamRobot(
+                    fieldStartX + positions[i][0],
+                    fieldStartY + positions[i][1],
+                    true  // Red team
+            );
+            robot.setRole(roles[i]);
+            gameController.addRobot(robot);
         }
     }
 
@@ -338,6 +412,14 @@ public class GameCoordinator {
             if (gameController.isRunning()) {
                 gameController.update();
                 updateFormations();
+
+                // Debug ball state
+                Ball ball = gameController.getBall();
+                if (ball != null && (ball.getDX() != 0 || ball.getDY() != 0)) {
+                    System.out.println("Ball velocity: " + ball.getDX() + ", " + ball.getDY());
+                }
+
+                render();
             }
         } finally {
             updateLock.unlock();
@@ -358,10 +440,14 @@ public class GameCoordinator {
      * @param event Mouse event
      */
     private void handleMousePressed(MouseEvent event) {
+
+
+        if (!gameRunning) return;
+
         double x = event.getX();
         double y = event.getY();
 
-        // Check for robot selection
+        // Check for robot selection first
         TeamRobot clickedRobot = findRobotAt(x, y);
         if (clickedRobot != null) {
             selectedRobot = clickedRobot;
@@ -371,15 +457,23 @@ public class GameCoordinator {
             return;
         }
 
-        // Handle ball kicks
+        // Handle ball kick
         Ball ball = gameController.getBall();
-        double dx = x - ball.getX();
-        double dy = y - ball.getY();
-        double dist = Math.sqrt(dx * dx + dy * dy);
+        if (ball != null) {
+            // Calculate distance from click to ball
+            double dx = ball.getX() - x;
+            double dy = ball.getY() - y;
+            double dist = Math.sqrt(dx * dx + dy * dy);
 
-        if (dist > 0) {
-            double power = Math.min(dist / 100.0, 1.0) * 5.0; // Scale kick power
-            ball.applyForce((dx / dist) * power, (dy / dist) * power);
+
+            // Kick if clicked near the ball
+            if (dist < 50) { // Reduced kick range for better control
+                // Normalize direction and apply force
+                dx = dx / dist;
+                dy = dy / dist;
+                double kickPower = 15.0; // Increased kick power
+                ball.applyForce(dx * kickPower, dy * kickPower);
+            }
         }
     }
 
@@ -504,6 +598,58 @@ public class GameCoordinator {
             updateLock.unlock();
         }
     }
+
+
+    public void addRobot(boolean isRedTeam, TeamRobot.RobotRole role) {
+        // Calculate default position based on team
+        double x = isRedTeam ? 
+            fieldManager.getBoundaries()[0].getXY()[0] + fieldManager.getWidth() * 0.25 : // Red team left side
+            fieldManager.getBoundaries()[0].getXY()[0] + fieldManager.getWidth() * 0.75;  // Blue team right side
+        double y = fieldManager.getBoundaries()[0].getXY()[1] + fieldManager.getHeight() / 2;
+    
+        // Create and configure new robot
+        TeamRobot robot = new TeamRobot(x, y, isRedTeam);
+        robot.setRole(role);
+    
+        // Add to game controller
+        gameController.addRobot(robot);
+    
+        // Update formations
+        if (isRedTeam) {
+            redTeamFormation.assignPositions(gameController.getRedTeam());
+        } else {
+            blueTeamFormation.assignPositions(gameController.getBlueTeam());
+        }
+    }
+    
+    public void removeRobot(int index) {
+        List<TeamRobot> redTeam = gameController.getRedTeam();
+        List<TeamRobot> blueTeam = gameController.getBlueTeam();
+        
+        if (index < redTeam.size()) {
+            // Remove from red team
+            TeamRobot robot = redTeam.get(index);
+            gameController.removeRobot(robot);
+            redTeamFormation.removeRobot(robot);
+        } else {
+            // Remove from blue team
+            index -= redTeam.size();
+            if (index < blueTeam.size()) {
+                TeamRobot robot = blueTeam.get(index);
+                gameController.removeRobot(robot);
+                blueTeamFormation.removeRobot(robot);
+            }
+        }
+    }
+    
+    public int getRedTeamCount() {
+        return gameController.getRedTeam().size();
+    }
+    
+    public int getBlueTeamCount() {
+        return gameController.getBlueTeam().size();
+    }
+    
 
     /**
      * Toggles debug information display

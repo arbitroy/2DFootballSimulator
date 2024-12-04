@@ -32,6 +32,17 @@ public class ArenaCanvas extends Canvas {
         createGameLoop();
         
         drawField();
+
+        // Bind width and height to parent
+        widthProperty().addListener((obs, oldVal, newVal) -> {
+            drawField();
+        });
+        heightProperty().addListener((obs, oldVal, newVal) -> {
+            drawField();
+        });
+
+        // Make canvas focusable for input events
+        setFocusTraversable(true);
     }
 
     private void setupMouseHandlers() {

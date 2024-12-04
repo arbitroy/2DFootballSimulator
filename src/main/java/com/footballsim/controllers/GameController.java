@@ -51,12 +51,13 @@ public class GameController {
      * Creates a new game controller with default settings
      */
     public GameController() {
-        this(600, 400);  // Default field dimensions
+        this(600, 400); // Default field dimensions
     }
 
     /**
      * Creates a new game controller with specified field dimensions
-     * @param fieldWidth Width of the playing field
+     * 
+     * @param fieldWidth  Width of the playing field
      * @param fieldHeight Height of the playing field
      */
     public GameController(double fieldWidth, double fieldHeight) {
@@ -64,17 +65,17 @@ public class GameController {
         this.fieldHeight = fieldHeight;
         this.borderWidth = 20;
         this.goalWidth = 60;
-        
+
         // Initialize collections with thread-safe implementations
         this.redTeam = Collections.synchronizedList(new ArrayList<>());
         this.blueTeam = Collections.synchronizedList(new ArrayList<>());
         this.obstacles = Collections.synchronizedList(new ArrayList<>());
         this.eventListeners = new CopyOnWriteArrayList<>();
-        
+
         // Create ball at center of field
-        this.ball = new Ball(fieldWidth/2 + borderWidth, fieldHeight/2 + borderWidth);
+        this.ball = new Ball(fieldWidth / 2 + borderWidth, fieldHeight / 2 + borderWidth);
         this.physicsEngine = new PhysicsEngine();
-        
+
         initializeGame();
     }
 
@@ -98,8 +99,8 @@ public class GameController {
                 obstacles.clear();
 
                 // Reset ball to center
-                synchronized(ball) {
-                    ball.setPosition(fieldWidth/2 + borderWidth, fieldHeight/2 + borderWidth);
+                synchronized (ball) {
+                    ball.setPosition(fieldWidth / 2 + borderWidth, fieldHeight / 2 + borderWidth);
                     ball.setVelocity(0, 0);
                 }
             } finally {
@@ -121,7 +122,10 @@ public class GameController {
         try {
             collectionsLock.lock();
             try {
-                // Update physics
+                // Update ball with proper boundaries
+                ball.update(fieldWidth, fieldHeight, borderWidth);
+
+                // Update physics for robots and obstacles
                 List<TeamRobot> allRobots = new ArrayList<>(redTeam);
                 allRobots.addAll(blueTeam);
                 physicsEngine.update(ball, allRobots, obstacles, fieldWidth, fieldHeight);
@@ -279,7 +283,77 @@ public class GameController {
         }
     }
 
-  
+    /**
+     * Removes a robot from either team
+     * 
+     * @param robot Robot to remove
+     */
+    public void removeRobot(TeamRobot robot) {
+        collectionsLock.lock();
+        try {
+            if (robot.isRedTeam()) {
+                redTeam.remove(robot);
+            } else {
+                blueTeam.remove(robot);
+            }
+        } finally {
+            collectionsLock.unlock();
+        }
+    }
+
+    /**
+     * Gets the total width including borders
+     * 
+     * @return Total width
+     */
+    public double getTotalWidth() {
+        return fieldWidth + (borderWidth * 2);
+    }
+
+    /**
+     * Gets the total height including borders
+     * 
+     * @return Total height
+     */
+    public double getTotalHeight() {
+        return fieldHeight + (borderWidth * 2);
+    }
+
+    /**
+     * Gets the width of the border
+     * 
+     * @return Border width
+     */
+    public double getBorderWidth() {
+        return borderWidth;
+    }
+
+    /**
+     * Gets the width of the goals
+     * 
+     * @return Goal width
+     */
+    public double getGoalWidth() {
+        return goalWidth;
+    }
+
+    /**
+     * Gets the current match time in seconds
+     * 
+     * @return Match time in seconds
+     */
+    public int getMatchTimeSeconds() {
+        return matchTimeSeconds;
+    }
+
+    /**
+     * Sets the match duration in seconds
+     * 
+     * @param seconds New match duration
+     */
+    public void setMatchTimeSeconds(int seconds) {
+        this.matchTimeSeconds = seconds;
+    }
 
     // Obstacle management
     public void addObstacle(AbstractArenaObject obstacle) {
