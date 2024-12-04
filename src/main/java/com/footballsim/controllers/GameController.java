@@ -1,46 +1,49 @@
 package com.footballsim.controllers;
 
 import java.util.*;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.locks.ReentrantLock;
 
-import com.footballsim.models.AbstractArenaObject;
-import com.footballsim.models.Ball;
-import com.footballsim.models.GameConfig;
-import com.footballsim.models.TeamRobot;
+import com.footballsim.models.*;
 import com.footballsim.utils.PhysicsEngine;
 
 /**
  * Controls the game state and coordinates all game components.
  */
 public class GameController {
-    // Game state
-    private boolean isRunning;
-    private int matchTimeSeconds;
-    private int redScore;
-    private int blueScore;
-    private double gameSpeed;
+    // Game state - protected by state lock
+    private final ReentrantLock stateLock = new ReentrantLock();
+    private volatile boolean isRunning;
+    private volatile int matchTimeSeconds;
+    private volatile int redScore;
+    private volatile int blueScore;
+    private volatile double gameSpeed;
 
-    // Field properties
-    private double fieldWidth;
-    private double fieldHeight;
-    private double borderWidth;
-    private double goalWidth;
+    // Field properties - immutable after construction
+    private final double fieldWidth;
+    private final double fieldHeight;
+    private final double borderWidth;
+    private final double goalWidth;
 
-    // Game objects
-    private Ball ball;
-    private List<TeamRobot> redTeam;
-    private List<TeamRobot> blueTeam;
-    private List<AbstractArenaObject> obstacles;
-    private PhysicsEngine physicsEngine;
+    // Game objects - protected by collections lock
+    private final ReentrantLock collectionsLock = new ReentrantLock();
+    private final Ball ball;
+    private final List<TeamRobot> redTeam;
+    private final List<TeamRobot> blueTeam;
+    private final List<AbstractArenaObject> obstacles;
+    private final PhysicsEngine physicsEngine;
 
-    // Event listeners
-    private List<GameEventListener> eventListeners;
+    // Thread-safe event listeners
+    private final CopyOnWriteArrayList<GameEventListener> eventListeners;
 
     /**
      * Interface for game event notifications
      */
     public interface GameEventListener {
         void onGoalScored(boolean redTeam);
+
         void onTimeUpdated(int minutes, int seconds);
+
         void onGameEnd(boolean redTeamWon);
     }
 
@@ -48,12 +51,7 @@ public class GameController {
      * Creates a new game controller with default settings
      */
     public GameController() {
-        this.fieldWidth = 600;
-        this.fieldHeight = 400;
-        this.borderWidth = 20;
-        this.goalWidth = 60;
-        
-        initializeGame();
+        this(600, 400);  // Default field dimensions
     }
 
     /**
@@ -67,62 +65,98 @@ public class GameController {
         this.borderWidth = 20;
         this.goalWidth = 60;
         
+        // Initialize collections with thread-safe implementations
+        this.redTeam = Collections.synchronizedList(new ArrayList<>());
+        this.blueTeam = Collections.synchronizedList(new ArrayList<>());
+        this.obstacles = Collections.synchronizedList(new ArrayList<>());
+        this.eventListeners = new CopyOnWriteArrayList<>();
+        
+        // Create ball at center of field
+        this.ball = new Ball(fieldWidth/2 + borderWidth, fieldHeight/2 + borderWidth);
+        this.physicsEngine = new PhysicsEngine();
+        
         initializeGame();
     }
 
     /**
-     * Initializes game objects and state
+     * Initializes or resets the game state
      */
     private void initializeGame() {
-        isRunning = false;
-        matchTimeSeconds = 300; // 5 minutes default
-        gameSpeed = 1.0;
-        redScore = 0;
-        blueScore = 0;
+        stateLock.lock();
+        try {
+            isRunning = false;
+            matchTimeSeconds = 300; // 5 minutes default
+            gameSpeed = 1.0;
+            redScore = 0;
+            blueScore = 0;
 
-        // Initialize collections
-        redTeam = new ArrayList<>();
-        blueTeam = new ArrayList<>();
-        obstacles = new ArrayList<>();
-        eventListeners = new ArrayList<>();
+            collectionsLock.lock();
+            try {
+                // Clear all collections
+                redTeam.clear();
+                blueTeam.clear();
+                obstacles.clear();
 
-        // Create ball at center of field
-        ball = new Ball(fieldWidth/2 + borderWidth, fieldHeight/2 + borderWidth);
-
-        // Initialize physics engine
-        physicsEngine = new PhysicsEngine();
+                // Reset ball to center
+                synchronized(ball) {
+                    ball.setPosition(fieldWidth/2 + borderWidth, fieldHeight/2 + borderWidth);
+                    ball.setVelocity(0, 0);
+                }
+            } finally {
+                collectionsLock.unlock();
+            }
+        } finally {
+            stateLock.unlock();
+        }
     }
 
     /**
      * Updates game state for current frame
      */
     public void update() {
-        if (!isRunning) return;
+        if (!isRunning)
+            return;
 
-        // Update physics
-        List<TeamRobot> allRobots = new ArrayList<>(redTeam);
-        allRobots.addAll(blueTeam);
-        physicsEngine.update(ball, allRobots, obstacles, fieldWidth, fieldHeight);
+        stateLock.lock();
+        try {
+            collectionsLock.lock();
+            try {
+                // Update physics
+                List<TeamRobot> allRobots = new ArrayList<>(redTeam);
+                allRobots.addAll(blueTeam);
+                physicsEngine.update(ball, allRobots, obstacles, fieldWidth, fieldHeight);
 
-        // Update robots
-        updateTeam(redTeam, blueTeam);
-        updateTeam(blueTeam, redTeam);
+                // Update robots
+                updateTeam(redTeam, blueTeam);
+                updateTeam(blueTeam, redTeam);
 
-        // Check for goals
-        checkForGoals();
+                // Check for goals
+                checkForGoals();
 
-        // Update match time
-        updateMatchTime();
+                // Update match time
+                updateMatchTime();
+            } finally {
+                collectionsLock.unlock();
+            }
+        } finally {
+            stateLock.unlock();
+        }
     }
 
     /**
      * Updates robots in a team
-     * @param team Team to update
+     * 
+     * @param team      Team to update
      * @param opponents Opposing team
      */
     private void updateTeam(List<TeamRobot> team, List<TeamRobot> opponents) {
-        for (TeamRobot robot : team) {
-            robot.updateBehavior(ball, obstacles, team, opponents);
+        collectionsLock.lock();
+        try {
+            for (TeamRobot robot : team) {
+                robot.updateBehavior(ball, obstacles, team, opponents);
+            }
+        } finally {
+            collectionsLock.unlock();
         }
     }
 
@@ -130,22 +164,31 @@ public class GameController {
      * Checks if a goal has been scored
      */
     private void checkForGoals() {
-        double ballX = ball.getX();
-        double ballY = ball.getY();
-        double goalTop = (fieldHeight - goalWidth)/2 + borderWidth;
-        double goalBottom = goalTop + goalWidth;
+        synchronized (ball) {
+            double ballX = ball.getX();
+            double ballY = ball.getY();
+            double goalTop = (fieldHeight - goalWidth) / 2 + borderWidth;
+            double goalBottom = goalTop + goalWidth;
 
-        // Check left goal (blue team)
-        if (ballX <= borderWidth && ballY >= goalTop && ballY <= goalBottom) {
-            redScore++;
-            notifyGoalScored(true);
-            resetAfterGoal();
-        }
-        // Check right goal (red team)
-        else if (ballX >= fieldWidth + borderWidth && ballY >= goalTop && ballY <= goalBottom) {
-            blueScore++;
-            notifyGoalScored(false);
-            resetAfterGoal();
+            if (ballX <= borderWidth && ballY >= goalTop && ballY <= goalBottom) {
+                stateLock.lock();
+                try {
+                    redScore++;
+                    notifyGoalScored(true);
+                    resetAfterGoal();
+                } finally {
+                    stateLock.unlock();
+                }
+            } else if (ballX >= fieldWidth + borderWidth && ballY >= goalTop && ballY <= goalBottom) {
+                stateLock.lock();
+                try {
+                    blueScore++;
+                    notifyGoalScored(false);
+                    resetAfterGoal();
+                } finally {
+                    stateLock.unlock();
+                }
+            }
         }
     }
 
@@ -168,7 +211,7 @@ public class GameController {
      */
     private void resetAfterGoal() {
         // Reset ball to center
-        ball.setPosition(fieldWidth/2 + borderWidth, fieldHeight/2 + borderWidth);
+        ball.setPosition(fieldWidth / 2 + borderWidth, fieldHeight / 2 + borderWidth);
         ball.setVelocity(0, 0);
 
         // Could add robot reset positions here
@@ -185,7 +228,12 @@ public class GameController {
 
     // Event notification methods
     private void notifyGoalScored(boolean redTeam) {
-        for (GameEventListener listener : eventListeners) {
+        // Create a copy of the list to avoid concurrent modification
+        List<GameEventListener> listenersCopy;
+        synchronized (eventListeners) {
+            listenersCopy = new ArrayList<>(eventListeners);
+        }
+        for (GameEventListener listener : listenersCopy) {
             listener.onGoalScored(redTeam);
         }
     }
@@ -219,20 +267,19 @@ public class GameController {
 
     // Robot management
     public void addRobot(TeamRobot robot) {
-        if (robot.isRedTeam()) {
-            redTeam.add(robot);
-        } else {
-            blueTeam.add(robot);
+        collectionsLock.lock();
+        try {
+            if (robot.isRedTeam()) {
+                redTeam.add(robot);
+            } else {
+                blueTeam.add(robot);
+            }
+        } finally {
+            collectionsLock.unlock();
         }
     }
 
-    public void removeRobot(TeamRobot robot) {
-        if (robot.isRedTeam()) {
-            redTeam.remove(robot);
-        } else {
-            blueTeam.remove(robot);
-        }
-    }
+  
 
     // Obstacle management
     public void addObstacle(AbstractArenaObject obstacle) {
@@ -245,27 +292,39 @@ public class GameController {
 
     // Configuration methods
     public void loadConfig(GameConfig config) {
-        fieldWidth = config.getFieldWidth();
-        fieldHeight = config.getFieldHeight();
-        
-        // Clear existing objects
-        redTeam.clear();
-        blueTeam.clear();
-        obstacles.clear();
+        stateLock.lock();
+        try {
+            collectionsLock.lock();
+            try {
+                // Clear existing objects
+                redTeam.clear();
+                blueTeam.clear();
+                obstacles.clear();
 
-        // Create new objects from config
-        for (GameConfig.RobotConfig robotConfig : config.getRobots()) {
-            TeamRobot robot = robotConfig.createRobot();
-            addRobot(robot);
+                // Create new objects from config
+                for (GameConfig.RobotConfig robotConfig : config.getRobots()) {
+                    TeamRobot robot = robotConfig.createRobot();
+                    addRobot(robot);
+                }
+
+                for (GameConfig.ObstacleConfig obstacleConfig : config.getObstacles()) {
+                    addObstacle(obstacleConfig.createObstacle());
+                }
+
+                Ball newBall = config.getBall().createBall();
+                synchronized (ball) {
+                    ball.setPosition(newBall.getX(), newBall.getY());
+                    ball.setVelocity(newBall.getDX(), newBall.getDY());
+                }
+
+                matchTimeSeconds = config.getMatchDuration();
+                gameSpeed = config.getGameSpeed();
+            } finally {
+                collectionsLock.unlock();
+            }
+        } finally {
+            stateLock.unlock();
         }
-
-        for (GameConfig.ObstacleConfig obstacleConfig : config.getObstacles()) {
-            addObstacle(obstacleConfig.createObstacle());
-        }
-
-        ball = config.getBall().createBall();
-        matchTimeSeconds = config.getMatchDuration();
-        gameSpeed = config.getGameSpeed();
     }
 
     // Event listener management
@@ -278,14 +337,54 @@ public class GameController {
     }
 
     // Getters
-    public Ball getBall() { return ball; }
-    public List<TeamRobot> getRedTeam() { return Collections.unmodifiableList(redTeam); }
-    public List<TeamRobot> getBlueTeam() { return Collections.unmodifiableList(blueTeam); }
-    public List<AbstractArenaObject> getObstacles() { return Collections.unmodifiableList(obstacles); }
-    public int getRedScore() { return redScore; }
-    public int getBlueScore() { return blueScore; }
-    public int getMatchTimeSeconds() { return matchTimeSeconds; }
-    public boolean isRunning() { return isRunning; }
-    public double getGameSpeed() { return gameSpeed; }
-    public void setGameSpeed(double speed) { this.gameSpeed = speed; }
+    public double getGameSpeed() {
+        return gameSpeed;
+    }
+
+    public void setGameSpeed(double speed) {
+        this.gameSpeed = speed;
+    }
+
+    public boolean isRunning() {
+        return isRunning;
+    }
+
+    public int getRedScore() {
+        return redScore;
+    }
+
+    public int getBlueScore() {
+        return blueScore;
+    }
+
+    public Ball getBall() {
+        return ball;
+    }
+
+    public List<TeamRobot> getRedTeam() {
+        collectionsLock.lock();
+        try {
+            return new ArrayList<>(redTeam);
+        } finally {
+            collectionsLock.unlock();
+        }
+    }
+
+    public List<TeamRobot> getBlueTeam() {
+        collectionsLock.lock();
+        try {
+            return new ArrayList<>(blueTeam);
+        } finally {
+            collectionsLock.unlock();
+        }
+    }
+
+    public List<AbstractArenaObject> getObstacles() {
+        collectionsLock.lock();
+        try {
+            return new ArrayList<>(obstacles);
+        } finally {
+            collectionsLock.unlock();
+        }
+    }
 }

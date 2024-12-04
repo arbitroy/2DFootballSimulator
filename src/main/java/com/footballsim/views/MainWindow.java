@@ -6,6 +6,8 @@ import java.io.File;
 import java.io.IOException;
 import com.footballsim.controllers.GameCoordinator;
 import com.footballsim.models.GameConfig;
+import com.footballsim.models.TeamRobot;
+
 import javafx.geometry.Insets;
 import javafx.scene.Scene;
 import javafx.stage.FileChooser;
@@ -138,8 +140,15 @@ public class MainWindow {
         Button addObstacleButton = new Button("Add Obstacle");
         Button removeButton = new Button("Remove Selected");
 
-        addRedRobotButton.setOnAction(e -> robotPanel.addRobot(true));
-        addBlueRobotButton.setOnAction(e -> robotPanel.addRobot(false));
+      addRedRobotButton.setOnAction(e -> {
+    TeamRobot robot = robotManager.addRobot(true, TeamRobot.RobotRole.ATTACKER);
+    robotPanel.addRobot(true); // Updates the UI list
+});
+
+addBlueRobotButton.setOnAction(e -> {
+    TeamRobot robot = robotManager.addRobot(false, TeamRobot.RobotRole.ATTACKER);
+    robotPanel.addRobot(false); // Updates the UI list
+});
         addObstacleButton.setOnAction(e -> obstaclePanel.addObstacle());
         removeButton.setOnAction(e -> gameCoordinator.removeSelectedObject());
 
@@ -337,4 +346,6 @@ public class MainWindow {
     public void show() {
         stage.show();
     }
+
+
 }

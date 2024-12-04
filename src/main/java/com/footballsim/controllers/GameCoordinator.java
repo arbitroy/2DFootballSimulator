@@ -5,12 +5,14 @@ import com.footballsim.utils.Line;
 import com.footballsim.views.*;
 import com.footballsim.formations.FormationManager;
 import javafx.animation.AnimationTimer;
+import javafx.application.Platform;
 import javafx.scene.input.MouseEvent;
 import javafx.scene.canvas.GraphicsContext;
 import javafx.scene.paint.Color;
 import javafx.scene.text.TextAlignment;
 import javafx.scene.transform.Rotate;
 import java.util.*;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * Coordinates interactions between game components and UI elements.
@@ -26,6 +28,7 @@ public class GameCoordinator {
     private final FormationManager blueTeamFormation;
     private final GameSettingsPanel settingsPanel;
     private final RobotControlPanel robotPanel;
+    private final RobotManager robotManager;
 
     // Constants for rendering
     private static final Color FIELD_COLOR = Color.LIGHTGREEN;
@@ -39,9 +42,11 @@ public class GameCoordinator {
     private TeamRobot selectedRobot;
     private boolean isDraggingRobot;
     private double dragStartX, dragStartY;
-    private AnimationTimer gameLoop;
+    private final GameLoop gameLoop;
     private boolean showDebugInfo;
     private boolean gameRunning = false;
+
+    private final ReentrantLock updateLock = new ReentrantLock();
 
     /**
      * Creates a new game coordinator with the specified components
@@ -53,14 +58,44 @@ public class GameCoordinator {
         this.robotPanel = robotPanel;
 
         // Initialize core components
-        this.fieldManager = new FieldManager(arenaCanvas.getWidth(), arenaCanvas.getHeight(), 20, 60);
-        this.gameController = new GameController(fieldManager.getWidth(), fieldManager.getHeight());
+        this.fieldManager = new FieldManager(arenaCanvas.getFieldWidth(),
+                arenaCanvas.getFieldHeight(), 20, 60);
+        this.gameController = new GameController(fieldManager.getWidth(),
+                fieldManager.getHeight());
+        this.gameLoop = new GameLoop(gameController, this);
         this.redTeamFormation = new FormationManager(fieldManager, true);
         this.blueTeamFormation = new FormationManager(fieldManager, false);
         this.showDebugInfo = false;
+        this.robotManager = new RobotManager(fieldWidth, fieldHeight, borderWidth);
 
         setupEventHandlers();
-        initializeGameLoop();
+
+        // Update UI components on JavaFX thread
+        gameController.addEventListener(new GameController.GameEventListener() {
+            @Override
+            public void onGoalScored(boolean redTeam) {
+                Platform.runLater(() -> {
+                    settingsPanel.updateScore(gameController.getRedScore(),
+                            gameController.getBlueScore());
+                });
+            }
+
+            @Override
+            public void onTimeUpdated(int minutes, int seconds) {
+                Platform.runLater(() -> {
+                    settingsPanel.updateTimer(minutes, seconds);
+                });
+            }
+
+            @Override
+            public void onGameEnd(boolean redTeamWon) {
+                Platform.runLater(() -> {
+                    stopGame();
+                    showGameEndDialog(redTeamWon);
+                });
+            }
+        });
+
     }
 
     /**
@@ -75,22 +110,22 @@ public class GameCoordinator {
      * Draws the field including all markings
      */
     private void drawField(GraphicsContext gc) {
+        Line[] boundaries = fieldManager.getBoundaries();
+        if (boundaries == null || boundaries.length == 0) {
+            return; // Or initialize with default values
+        }
+
+        double[] xy = boundaries[0].getXY();
+        if (xy == null || xy.length < 2) {
+            return; // Or initialize with default values
+        }
+
         // Clear and draw main field background
         gc.setFill(FIELD_COLOR);
-        gc.fillRect(fieldManager.getBoundaries()[0].getXY()[0],
-                fieldManager.getBoundaries()[0].getXY()[1],
-                fieldManager.getWidth(),
-                fieldManager.getHeight());
+        gc.fillRect(xy[0], xy[1], fieldManager.getWidth(), fieldManager.getHeight());
 
         gc.setStroke(LINE_COLOR);
         gc.setLineWidth(LINE_WIDTH);
-
-        // Draw field boundaries
-        for (Line boundary : fieldManager.getBoundaries()) {
-            double[] xy = boundary.getXY();
-            // Each line has start (x,y) and end (x,y) coordinates
-            gc.strokeLine(xy[0], xy[1], xy[2], xy[3]);
-        }
 
         // Draw center line
         double centerX = fieldManager.getCenterSpot().x;
@@ -257,25 +292,56 @@ public class GameCoordinator {
         });
     }
 
+
     /**
-     * Initializes the game loop for continuous updates
+     * Renders the game state - called on JavaFX thread
      */
-    private void initializeGameLoop() {
-        gameLoop = new AnimationTimer() {
-            @Override
-            public void handle(long now) {
-                update();
-                render();
-            }
-        };
+    public void render() {
+        GraphicsContext gc = arenaCanvas.getGraphicsContext2D();
+        clearCanvas(gc);
+        drawField(gc);
+        drawBall(gc);
+        robotManager.drawRobots(gc);
+        drawObstacles(gc);
+    }
+
+    public void startGame() {
+        updateLock.lock();
+        try {
+            gameLoop.start();
+            gameRunning = true;
+        } finally {
+            updateLock.unlock();
+        }
+    }
+
+    public void stopGame() {
+        updateLock.lock();
+        try {
+            gameLoop.stop();
+            gameRunning = false;
+        } finally {
+            updateLock.unlock();
+        }
+    }
+
+    public void cleanup() {
+        gameLoop.shutdown();
     }
 
     /**
      * Updates game state
      */
-    private void update() {
-        gameController.update();
-        updateFormations();
+    public void update() {
+        updateLock.lock();
+        try {
+            if (gameController.isRunning()) {
+                gameController.update();
+                updateFormations();
+            }
+        } finally {
+            updateLock.unlock();
+        }
     }
 
     /**
@@ -284,27 +350,6 @@ public class GameCoordinator {
     private void updateFormations() {
         redTeamFormation.assignPositions(gameController.getRedTeam());
         blueTeamFormation.assignPositions(gameController.getBlueTeam());
-    }
-
-    /**
-     * Renders the game state
-     */
-    private void render() {
-        GraphicsContext gc = arenaCanvas.getGraphicsContext2D();
-        clearCanvas(gc);
-
-        // Draw field
-        drawField(gc);
-
-        // Draw game objects
-        drawBall(gc);
-        drawRobots(gc);
-        drawObstacles(gc);
-
-        // Draw selection indicators
-        if (selectedRobot != null) {
-            drawSelectionIndicator(gc, selectedRobot);
-        }
     }
 
     /**
@@ -429,41 +474,35 @@ public class GameCoordinator {
     }
 
     /**
-     * Starts the game
-     */
-    public void startGame() {
-        gameLoop.start();
-        gameController.startGame();
-        gameRunning = true;
-    }
-
-    /**
-     * Stops the game
-     */
-    public void stopGame() {
-        gameLoop.stop();
-        gameController.pauseGame();
-        gameRunning = false;
-    }
-
-    /**
      * Updates the field dimensions
      * 
      * @param width  New field width
      * @param height New field height
      */
     public void updateFieldDimensions(Double width, Double height) {
-        // Recreate field manager with new dimensions
-        this.fieldManager = new FieldManager(width, height, 20, 60);
-        // Update game controller with new dimensions
-        this.gameController.loadConfig(new GameConfig() {
-            {
-                setFieldWidth(width);
-                setFieldHeight(height);
+        updateLock.lock();
+        try {
+            // Pause the game while updating dimensions
+            boolean wasRunning = gameController.isRunning();
+            if (wasRunning) {
+                gameController.pauseGame();
             }
-        });
-        // Trigger a render
-        render();
+
+            fieldManager = new FieldManager(width, height, 20, 60);
+            gameController.loadConfig(new GameConfig() {
+                {
+                    setFieldWidth(width);
+                    setFieldHeight(height);
+                }
+            });
+
+            // Resume if it was running
+            if (wasRunning) {
+                gameController.startGame();
+            }
+        } finally {
+            updateLock.unlock();
+        }
     }
 
     /**

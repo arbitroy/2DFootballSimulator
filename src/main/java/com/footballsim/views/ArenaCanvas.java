@@ -137,4 +137,7 @@ public class ArenaCanvas extends Canvas {
             gc.strokeLine(x + 20, y + GOAL_WIDTH, x, y + GOAL_WIDTH); // Bottom
         }
     }
+
+    public double getFieldWidth() { return fieldWidth; }
+    public double getFieldHeight() { return fieldHeight; }
 }

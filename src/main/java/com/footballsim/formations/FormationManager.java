@@ -120,13 +120,17 @@ public class FormationManager {
         this.currentFormation = FormationFactory.create2_2(); // Default formation
     }
 
+    public void clearFormations() {
+        robotPositions.clear();
+    }
+
     /**
      * Assigns roles and positions to robots based on current formation
      * 
      * @param robots List of team robots
      */
     public void assignPositions(List<TeamRobot> robots) {
-        robotPositions.clear();
+        robotPositions.clear();  // Clear old mappings first
         List<FormationPosition> positions = currentFormation.getPositions();
 
         // Mirror positions for blue team
@@ -141,10 +145,13 @@ public class FormationManager {
         while (robotIterator.hasNext() && positionIterator.hasNext()) {
             TeamRobot robot = robotIterator.next();
             FormationPosition position = positionIterator.next();
-
             robot.setRole(position.getRole());
             robotPositions.put(robot, position);
         }
+    }
+
+    public void removeRobot(TeamRobot robot) {
+        robotPositions.remove(robot);
     }
 
     /**
