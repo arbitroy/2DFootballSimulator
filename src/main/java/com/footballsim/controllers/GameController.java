@@ -31,6 +31,8 @@ public class GameController {
     private final List<TeamRobot> redTeam;
     private final List<TeamRobot> blueTeam;
     private final List<AbstractArenaObject> obstacles;
+
+    private List<String> matchHistory = new ArrayList<>();
     private final PhysicsEngine physicsEngine;
 
     // Thread-safe event listeners
@@ -175,25 +177,36 @@ public class GameController {
             double goalBottom = goalTop + goalWidth;
 
             if (ballX <= borderWidth && ballY >= goalTop && ballY <= goalBottom) {
-                stateLock.lock();
-                try {
-                    redScore++;
-                    notifyGoalScored(true);
-                    resetAfterGoal();
-                } finally {
-                    stateLock.unlock();
-                }
+                redScore++;
+                recordGoal(true);
+                notifyGoalScored(true);
+                resetAfterGoal();
             } else if (ballX >= fieldWidth + borderWidth && ballY >= goalTop && ballY <= goalBottom) {
-                stateLock.lock();
-                try {
-                    blueScore++;
-                    notifyGoalScored(false);
-                    resetAfterGoal();
-                } finally {
-                    stateLock.unlock();
-                }
+                blueScore++;
+                recordGoal(false);
+                notifyGoalScored(false);
+                resetAfterGoal();
             }
         }
+    }
+
+    /**
+     * Records a goal event in match history
+     * @param isRedTeam true if red team scored
+     */
+    private void recordGoal(boolean isRedTeam) {
+        String timeStamp = String.format("%02d:%02d", matchTimeSeconds / 60, matchTimeSeconds % 60);
+        String team = isRedTeam ? "Red" : "Blue";
+        matchHistory.add(String.format("[%s] GOAL! %s team scores! Score: %d-%d",
+                timeStamp, team, redScore, blueScore));
+    }
+
+    /**
+     * Gets the match history
+     * @return List of match events
+     */
+    public List<String> getMatchHistory() {
+        return Collections.unmodifiableList(matchHistory);
     }
 
     /**
@@ -205,10 +218,25 @@ public class GameController {
             notifyTimeUpdated();
 
             if (matchTimeSeconds <= 0) {
+                matchTimeSeconds = 0;  // Ensure we don't go negative
                 endGame();
             }
         }
     }
+
+
+    /**
+     * Sets the match duration in seconds
+     * @param duration Match duration in seconds
+     * @throws IllegalArgumentException if duration is less than 1 minute or more than 30 minutes
+     */
+    public void setMatchDuration(int duration) {
+        if (duration < 60 || duration > 1800) {
+            throw new IllegalArgumentException("Match duration must be between 1 and 30 minutes");
+        }
+        this.matchTimeSeconds = duration;
+    }
+
 
     /**
      * Resets positions after a goal

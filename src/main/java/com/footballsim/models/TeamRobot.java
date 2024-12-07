@@ -1,9 +1,7 @@
 package com.footballsim.models;
 
 import java.util.List;
-
 import com.footballsim.utils.Line;
-
 import javafx.scene.canvas.GraphicsContext;
 import javafx.scene.paint.Color;
 
@@ -14,6 +12,16 @@ public class TeamRobot extends AbstractRobot {
     private boolean isRedTeam;
     private RobotRole currentRole;
     private static final double DIRECTION_INDICATOR_LENGTH = 15.0;
+
+    private static final double FIELD_MARGIN = 30.0; // Minimum distance from boundaries
+    private static final double ROBOT_SPACING = 40.0; // Minimum distance between robots
+    private static final double APPROACH_SLOWDOWN = 0.7; // Speed reduction when near targets
+    private static final double AVOIDANCE_THRESHOLD = 50.0; // Distance to start avoiding obstacles
+
+    // Home position for formation
+    private double homeX;
+    private double homeY;
+
 
     public enum RobotRole {
         GOALKEEPER,
@@ -52,7 +60,7 @@ public class TeamRobot extends AbstractRobot {
     @Override
     public void draw(GraphicsContext gc) {
         gc.save(); // Save current graphics state
-        
+
         // Move to robot's position and apply rotation
         gc.translate(x + width/2, y + height/2);
         gc.rotate(rotation);
@@ -102,40 +110,15 @@ public class TeamRobot extends AbstractRobot {
         Line[] sensorBeams = createSensorBeams();
         gc.setStroke(Color.LIGHTGREEN);
         gc.setLineWidth(0.5);
-        
+
         for (Line beam : sensorBeams) {
-            gc.strokeLine(beam.getXY()[0] - x - width/2, 
+            gc.strokeLine(beam.getXY()[0] - x - width/2,
                          beam.getXY()[1] - y - height/2,
-                         beam.getXY()[2] - x - width/2, 
+                         beam.getXY()[2] - x - width/2,
                          beam.getXY()[3] - y - height/2);
         }
     }
 
-    /**
-     * Updates the robot's behavior based on game state
-     * @param ball The game ball
-     * @param obstacles List of obstacles
-     * @param teammates List of teammate robots
-     * @param opponents List of opponent robots
-     */
-    public void updateBehavior(Ball ball, List<AbstractArenaObject> obstacles,
-                               List<TeamRobot> teammates, List<TeamRobot> opponents) {
-
-        switch (currentRole) {
-            case GOALKEEPER:
-                updateGoalkeeper(ball);
-                break;
-            case DEFENDER:
-                updateDefender(ball, opponents);
-                break;
-            case ATTACKER:
-                updateAttacker(ball, obstacles);
-                break;
-        }
-
-        // Update position based on movement
-        super.update();
-    }
 
     private void updateGoalkeeper(Ball ball) {
         // Stay on goal line but move up/down based on ball position
@@ -231,15 +214,6 @@ public class TeamRobot extends AbstractRobot {
     }
 
     /**
-     * Normalizes angle to -180 to 180 range
-     */
-    private double normalizeAngle(double angle) {
-        while (angle > 180) angle -= 360;
-        while (angle < -180) angle += 360;
-        return angle;
-    }
-
-    /**
      * Moves robot to defensive position
      */
     private void moveToDefensivePosition() {
@@ -277,10 +251,271 @@ public class TeamRobot extends AbstractRobot {
         return nearest;
     }
 
+
+    /**
+     * Updates the robot's behavior based on game state with improved positioning and collision avoidance
+     * @param ball The game ball
+     * @param obstacles List of obstacles
+     * @param teammates List of teammate robots
+     * @param opponents List of opponent robots
+     */
+    @Override
+    public void updateBehavior(Ball ball, List<AbstractArenaObject> obstacles,
+                               List<TeamRobot> teammates, List<TeamRobot> opponents) {
+        // Get field boundaries
+        double fieldStartX = 20; // borderWidth
+        double fieldStartY = 20;
+        double fieldEndX = fieldStartX + 600; // fieldWidth
+        double fieldEndY = fieldStartY + 400;
+
+        // Calculate safe position within boundaries
+        double safeX = Math.min(Math.max(x, fieldStartX + FIELD_MARGIN),
+                fieldEndX - FIELD_MARGIN - width);
+        double safeY = Math.min(Math.max(y, fieldStartY + FIELD_MARGIN),
+                fieldEndY - FIELD_MARGIN - height);
+
+        // Update position if too close to boundaries
+        if (x != safeX || y != safeY) {
+            setPosition(safeX, safeY);
+            brake(); // Slow down when near boundaries
+        }
+
+        // Role-specific behavior
+        switch (currentRole) {
+            case GOALKEEPER:
+                updateGoalkeeper(ball, fieldStartY, fieldEndY);
+                break;
+            case DEFENDER:
+                updateDefender(ball, teammates, fieldStartX, fieldEndX);
+                break;
+            case ATTACKER:
+                updateAttacker(ball, obstacles, teammates);
+                break;
+        }
+
+        // Collision avoidance with other robots
+        avoidCollisions(teammates, opponents);
+    }
+
+    /**
+     * Updates goalkeeper behavior with improved positioning
+     */
+    private void updateGoalkeeper(Ball ball, double fieldStartY, double fieldEndY) {
+        double goalY = ball.getY();
+        double currentY = y + height/2;
+        double goalLineX = isRedTeam ? 40 : 580; // Stay on goal line
+
+        // Limit goalkeeper vertical movement
+        double minY = fieldStartY + FIELD_MARGIN;
+        double maxY = fieldEndY - FIELD_MARGIN - height;
+        goalY = Math.min(Math.max(goalY, minY), maxY);
+
+        // Move to goal line position
+        x = goalLineX;
+
+        // Smooth vertical movement
+        if (Math.abs(currentY - goalY) > 5) {
+            double moveSpeed = Math.min(maxSpeed * 0.5, Math.abs(currentY - goalY) * 0.1);
+            y += (goalY > currentY ? moveSpeed : -moveSpeed);
+        }
+    }
+
+    /**
+     * Updates defender behavior with improved positioning and spacing
+     */
+    private void updateDefender(Ball ball, List<TeamRobot> teammates,
+                                double fieldStartX, double fieldEndX) {
+        double defenseLineX = isRedTeam ?
+                fieldStartX + (fieldEndX - fieldStartX) * 0.3 :
+                fieldStartX + (fieldEndX - fieldStartX) * 0.7;
+
+        // Maintain defensive formation
+        double targetX = defenseLineX;
+        double targetY = y;
+
+        // Move to intercept ball if in defensive zone
+        boolean ballInDefensiveZone = isRedTeam ?
+                ball.getX() < defenseLineX + 50 :
+                ball.getX() > defenseLineX - 50;
+
+        if (ballInDefensiveZone) {
+            targetY = ball.getY();
+            // Adjust speed based on distance to ball
+            double distToBall = Math.sqrt(Math.pow(ball.getX() - x, 2) +
+                    Math.pow(ball.getY() - y, 2));
+            setSpeed(Math.min(maxSpeed, distToBall * 0.1));
+        }
+
+        // Move towards target position with spacing
+        moveToPosition(targetX, targetY, teammates);
+    }
+
+    /**
+     * Updates attacker behavior with improved ball pursuit and obstacle avoidance
+     */
+    private void updateAttacker(Ball ball, List<AbstractArenaObject> obstacles,
+                                List<TeamRobot> teammates) {
+        double distToBall = Math.sqrt(Math.pow(ball.getX() - x, 2) +
+                Math.pow(ball.getY() - y, 2));
+
+        // Check if path to ball is clear
+        boolean pathBlocked = false;
+        for (AbstractArenaObject obstacle : obstacles) {
+            if (detectObstacle(obstacle)) {
+                pathBlocked = true;
+                break;
+            }
+        }
+
+        if (!pathBlocked) {
+            // Approach ball with variable speed
+            double approachSpeed = Math.min(maxSpeed,
+                    distToBall * 0.2) * APPROACH_SLOWDOWN;
+            setSpeed(approachSpeed);
+
+            // Calculate angle to ball and turn towards it
+            double angleToTarget = Math.toDegrees(Math.atan2(ball.getY() - y,
+                    ball.getX() - x));
+            double angleDiff = normalizeAngle(angleToTarget - rotation);
+
+            if (Math.abs(angleDiff) > 5) {
+                turn(angleDiff > 0 ? turnRate : -turnRate);
+            }
+        } else {
+            // Find alternative path
+            findAlternativePath(ball, obstacles);
+        }
+    }
+
+    /**
+     * Implements collision avoidance with other robots
+     */
+    private void avoidCollisions(List<TeamRobot> teammates, List<TeamRobot> opponents) {
+        double avoidanceForceX = 0;
+        double avoidanceForceY = 0;
+
+        // Avoid teammates
+        for (TeamRobot other : teammates) {
+            if (other != this) {
+                double dist = distanceTo(other);
+                if (dist < ROBOT_SPACING) {
+                    double angle = Math.atan2(y - other.getY(), x - other.getX());
+                    double force = (ROBOT_SPACING - dist) / ROBOT_SPACING;
+                    avoidanceForceX += Math.cos(angle) * force;
+                    avoidanceForceY += Math.sin(angle) * force;
+                }
+            }
+        }
+
+        // Avoid opponents
+        for (TeamRobot other : opponents) {
+            double dist = distanceTo(other);
+            if (dist < ROBOT_SPACING) {
+                double angle = Math.atan2(y - other.getY(), x - other.getX());
+                double force = (ROBOT_SPACING - dist) / ROBOT_SPACING;
+                avoidanceForceX += Math.cos(angle) * force * 1.5; // Stronger avoidance
+                avoidanceForceY += Math.sin(angle) * force * 1.5;
+            }
+        }
+
+        // Apply avoidance forces
+        if (Math.abs(avoidanceForceX) > 0.1 || Math.abs(avoidanceForceY) > 0.1) {
+            x += avoidanceForceX * maxSpeed * 0.1;
+            y += avoidanceForceY * maxSpeed * 0.1;
+            brake(); // Reduce speed during avoidance
+        }
+    }
+
+    /**
+     * Moves robot to target position while maintaining spacing with teammates
+     */
+    private void moveToPosition(double targetX, double targetY,
+                                List<TeamRobot> teammates) {
+        double dx = targetX - x;
+        double dy = targetY - y;
+        double distance = Math.sqrt(dx * dx + dy * dy);
+
+        if (distance > 5) {
+            // Calculate desired movement direction
+            double moveX = dx / distance;
+            double moveY = dy / distance;
+
+            // Check spacing with teammates
+            for (TeamRobot teammate : teammates) {
+                if (teammate != this && distanceTo(teammate) < ROBOT_SPACING) {
+                    // Adjust movement to maintain spacing
+                    double avoidX = x - teammate.getX();
+                    double avoidY = y - teammate.getY();
+                    double avoidDist = Math.sqrt(avoidX * avoidX + avoidY * avoidY);
+                    moveX += (avoidX / avoidDist) * 0.5;
+                    moveY += (avoidY / avoidDist) * 0.5;
+                }
+            }
+
+            // Apply movement
+            double moveSpeed = Math.min(maxSpeed, distance * 0.1);
+            x += moveX * moveSpeed;
+            y += moveY * moveSpeed;
+
+            // Update rotation to face movement direction
+            rotation = Math.toDegrees(Math.atan2(moveY, moveX));
+        }
+    }
+
+    /**
+     * Finds alternative path when direct route is blocked
+     */
+    private void findAlternativePath(Ball ball, List<AbstractArenaObject> obstacles) {
+        // Calculate alternative target points
+        double[] leftPoint = {ball.getX() - AVOIDANCE_THRESHOLD, ball.getY()};
+        double[] rightPoint = {ball.getX() + AVOIDANCE_THRESHOLD, ball.getY()};
+
+        // Choose point with fewer obstacles
+        int leftObstacles = 0;
+        int rightObstacles = 0;
+
+        for (AbstractArenaObject obstacle : obstacles) {
+            if (isPointNearObstacle(leftPoint[0], leftPoint[1], obstacle)) {
+                leftObstacles++;
+            }
+            if (isPointNearObstacle(rightPoint[0], rightPoint[1], obstacle)) {
+                rightObstacles++;
+            }
+        }
+
+        // Move towards better path
+        double[] targetPoint = leftObstacles <= rightObstacles ? leftPoint : rightPoint;
+        double angleToTarget = Math.toDegrees(Math.atan2(targetPoint[1] - y,
+                targetPoint[0] - x));
+        double angleDiff = normalizeAngle(angleToTarget - rotation);
+
+        turn(angleDiff > 0 ? turnRate : -turnRate);
+        setSpeed(maxSpeed * 0.5); // Reduce speed while avoiding
+    }
+
+    /**
+     * Checks if a point is near an obstacle
+     */
+    private boolean isPointNearObstacle(double px, double py,
+                                        AbstractArenaObject obstacle) {
+        double dx = px - (obstacle.getX() + obstacle.getWidth()/2);
+        double dy = py - (obstacle.getY() + obstacle.getHeight()/2);
+        return Math.sqrt(dx*dx + dy*dy) < AVOIDANCE_THRESHOLD;
+    }
+
+    /**
+     * Normalizes angle to -180 to 180 range
+     */
+    private double normalizeAngle(double angle) {
+        while (angle > 180) angle -= 360;
+        while (angle < -180) angle += 360;
+        return angle;
+    }
+
     // Getters and setters
     public boolean isRedTeam() { return isRedTeam; }
-    
+
     public RobotRole getCurrentRole() { return currentRole; }
-    
+
     public void setRole(RobotRole role) { this.currentRole = role; }
 }

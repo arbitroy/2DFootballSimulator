@@ -2,6 +2,8 @@ package com.footballsim.models;
 
 import com.footballsim.utils.Line;
 
+import java.util.List;
+
 /**
  * Abstract base class for all robots in the game.
  * Implements basic movement, physics and sensor capabilities.
@@ -44,6 +46,18 @@ public abstract class AbstractRobot extends AbstractArenaObject {
         this.friction = 0.98;
         this.isColliding = false;
     }
+
+    /**
+     * Updates the robot's behavior based on game state
+     * @param ball The game ball
+     * @param obstacles List of obstacles in the arena
+     * @param teammates List of robots on the same team
+     * @param opponents List of robots on the opposing team
+     */
+    public abstract void updateBehavior(Ball ball,
+                                        List<AbstractArenaObject> obstacles,
+                                        List<TeamRobot> teammates,
+                                        List<TeamRobot> opponents);
 
     /**
      * Updates the robot's position and state

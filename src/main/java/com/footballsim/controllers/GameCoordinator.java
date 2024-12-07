@@ -322,6 +322,33 @@ public class GameCoordinator {
         }
     }
 
+    public void resetGame() {
+        updateLock.lock();
+        try {
+            // Stop game if running
+            if (gameRunning) {
+                stopGame();
+            }
+
+            // Reset game state through game controller
+            gameController.resetGame();
+
+            // Reset teams to default positions
+            setupPlayerTeam();
+            setupOpposingTeam();
+
+            // Update UI
+            robotPanel.updateRobotCounts(
+                    getRedTeamCount(),
+                    getBlueTeamCount()
+            );
+
+            // Render the reset state
+            render();
+        } finally {
+            updateLock.unlock();
+        }
+    }
     /**
      * Sets up basic opposing team
      */

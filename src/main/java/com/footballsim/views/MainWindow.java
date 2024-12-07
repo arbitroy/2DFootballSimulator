@@ -93,6 +93,26 @@ public class MainWindow {
             startButton.setDisable(false);
             pauseButton.setDisable(true);
         });
+
+        settingsPanel.setOnReset(() -> {
+            if (!gameCoordinator.isGameRunning()) {
+                gameCoordinator.resetGame();
+                showSuccess("Game reset successfully!");
+            } else {
+                // Show confirmation dialog first
+                Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
+                alert.setTitle("Reset Game");
+                alert.setHeaderText("Reset Current Game?");
+                alert.setContentText("This will end the current game and reset all scores. Continue?");
+
+                alert.showAndWait().ifPresent(response -> {
+                    if (response == ButtonType.OK) {
+                        gameCoordinator.resetGame();
+                        showSuccess("Game reset successfully!");
+                    }
+                });
+            }
+        });
         
         // Create toolbar with proper references
         toolBar = createToolBar();

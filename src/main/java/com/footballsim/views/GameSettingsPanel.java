@@ -12,6 +12,8 @@ public class GameSettingsPanel extends VBox {
     private Label redScoreLabel;
     private Label blueScoreLabel;
 
+    private Runnable onReset;
+
     public GameSettingsPanel() {
         setPadding(new Insets(10));
         setSpacing(10);
@@ -29,7 +31,7 @@ public class GameSettingsPanel extends VBox {
 
         // Reset button
         resetButton = new Button("Reset Game");
-        resetButton.setOnAction(e -> resetGame());
+
 
         // Score display
         HBox scoreBox = new HBox(20);
@@ -50,14 +52,21 @@ public class GameSettingsPanel extends VBox {
         );
     }
 
-    private void resetGame() {
-        // TODO: Implement reset functionality
+
+    public void setOnReset(Runnable handler) {
+        this.onReset = handler;
+        resetButton.setOnAction(e -> {
+            if (onReset != null) {
+                onReset.run();
+            }
+        });
     }
 
     public void updateScore(int redScore, int blueScore) {
         redScoreLabel.setText("Red Team: " + redScore);
         blueScoreLabel.setText("Blue Team: " + blueScore);
     }
+
 
     public void updateTimer(int minutes, int seconds) {
         timerLabel.setText(String.format("Time: %02d:%02d", minutes, seconds));
