@@ -111,50 +111,72 @@ public class GameCoordinator {
      * Draws the field including all markings
      */
     private void drawField(GraphicsContext gc) {
-        Line[] boundaries = fieldManager.getBoundaries();
-        if (boundaries == null || boundaries.length == 0) {
-            return; // Or initialize with default values
-        }
+        double borderWidth = arenaCanvas.getBorderWidth();
+        double fieldWidth = fieldManager.getWidth();
+        double fieldHeight = fieldManager.getHeight();
 
-        double[] xy = boundaries[0].getXY();
-        if (xy == null || xy.length < 2) {
-            return; // Or initialize with default values
-        }
+        // Clear entire canvas
+        clearCanvas(gc);
 
-        // Clear and draw main field background
+        // Draw border
+        gc.setFill(BORDER_COLOR);
+        gc.fillRect(0, 0, fieldWidth + 2 * borderWidth, fieldHeight + 2 * borderWidth);
+
+        // Draw field
         gc.setFill(FIELD_COLOR);
-        gc.fillRect(xy[0], xy[1], fieldManager.getWidth(), fieldManager.getHeight());
+        gc.fillRect(borderWidth, borderWidth, fieldWidth, fieldHeight);
 
+        // Draw center line - use field manager for positions
         gc.setStroke(LINE_COLOR);
         gc.setLineWidth(LINE_WIDTH);
+        double centerX = borderWidth + fieldWidth/2;
+        gc.strokeLine(centerX, borderWidth, centerX, borderWidth + fieldHeight);
 
-        // Draw center line
-        double centerX = fieldManager.getCenterSpot().x;
-        double topY = fieldManager.getBoundaries()[0].getXY()[1];
-        double bottomY = topY + fieldManager.getHeight();
-        gc.strokeLine(centerX, topY, centerX, bottomY);
+        // Draw center circle - scale radius based on field size
+        double centerY = borderWidth + fieldHeight/2;
+        double circleRadius = Math.min(fieldWidth, fieldHeight) * 0.15; // Scale with field size
+        gc.strokeOval(centerX - circleRadius, centerY - circleRadius,
+                circleRadius * 2, circleRadius * 2);
 
-        // Draw center circle
-        FieldManager.Circle centerCircle = fieldManager.getCenterCircle();
-        gc.strokeOval(centerCircle.x - centerCircle.radius,
-                centerCircle.y - centerCircle.radius,
-                centerCircle.radius * 2,
-                centerCircle.radius * 2);
+        // Draw penalty areas - scale with field size
+        double penaltyAreaWidth = fieldWidth * 0.15;
+        double penaltyAreaHeight = fieldHeight * 0.4;
+        double penaltyAreaY = borderWidth + (fieldHeight - penaltyAreaHeight)/2;
 
-        // Draw center spot
-        double spotRadius = 3;
-        gc.setFill(LINE_COLOR);
-        gc.fillOval(fieldManager.getCenterSpot().x - spotRadius,
-                fieldManager.getCenterSpot().y - spotRadius,
-                spotRadius * 2, spotRadius * 2);
+        // Left penalty area
+        gc.strokeRect(borderWidth, penaltyAreaY, penaltyAreaWidth, penaltyAreaHeight);
 
-        // Draw penalty areas
-        drawPenaltyArea(gc, fieldManager.getLeftPenaltyArea());
-        drawPenaltyArea(gc, fieldManager.getRightPenaltyArea());
+        // Right penalty area
+        gc.strokeRect(borderWidth + fieldWidth - penaltyAreaWidth, penaltyAreaY,
+                penaltyAreaWidth, penaltyAreaHeight);
 
-        // Draw goals
-        drawGoal(gc, true); // Left goal
-        drawGoal(gc, false); // Right goal
+        // Draw goals - scale with field size
+        double goalWidth = Math.min(fieldHeight * 0.15, 60); // Scale but cap at 60
+        double goalDepth = Math.min(fieldWidth * 0.05, 20);  // Scale but cap at 20
+        drawGoal(gc, true, goalWidth, goalDepth);  // Left goal
+        drawGoal(gc, false, goalWidth, goalDepth); // Right goal
+    }
+
+    private void drawGoal(GraphicsContext gc, boolean isLeft, double goalWidth, double goalDepth) {
+        gc.setStroke(LINE_COLOR);
+        gc.setLineWidth(LINE_WIDTH * 2);
+
+        double borderWidth = arenaCanvas.getBorderWidth();
+        double fieldHeight = fieldManager.getHeight();
+        double x = isLeft ? borderWidth : borderWidth + fieldManager.getWidth();
+        double y = borderWidth + (fieldHeight - goalWidth) / 2;
+
+        if (isLeft) {
+            gc.strokeLine(x, y, x - goalDepth, y);               // Top
+            gc.strokeLine(x - goalDepth, y, x - goalDepth, y + goalWidth); // Back
+            gc.strokeLine(x - goalDepth, y + goalWidth, x, y + goalWidth); // Bottom
+        } else {
+            gc.strokeLine(x, y, x + goalDepth, y);               // Top
+            gc.strokeLine(x + goalDepth, y, x + goalDepth, y + goalWidth); // Back
+            gc.strokeLine(x + goalDepth, y + goalWidth, x, y + goalWidth); // Bottom
+        }
+
+        gc.setLineWidth(LINE_WIDTH);
     }
 
     /**
@@ -467,12 +489,21 @@ public class GameCoordinator {
      * @param event Mouse event
      */
     private void handleMousePressed(MouseEvent event) {
-
-
         if (!gameRunning) return;
 
         double x = event.getX();
         double y = event.getY();
+
+        // Get field boundaries
+        double borderWidth = arenaCanvas.getBorderWidth();
+        double fieldWidth = fieldManager.getWidth();
+        double fieldHeight = fieldManager.getHeight();
+
+        // Check if click is within playable area
+        if (x < borderWidth || x > borderWidth + fieldWidth ||
+                y < borderWidth || y > borderWidth + fieldHeight) {
+            return;
+        }
 
         // Check for robot selection first
         TeamRobot clickedRobot = findRobotAt(x, y);
@@ -488,21 +519,22 @@ public class GameCoordinator {
         Ball ball = gameController.getBall();
         if (ball != null) {
             // Calculate distance from click to ball
-            double dx = ball.getX() - x;
-            double dy = ball.getY() - y;
+            double dx = x - ball.getX();
+            double dy = y - ball.getY();
             double dist = Math.sqrt(dx * dx + dy * dy);
 
-
             // Kick if clicked near the ball
-            if (dist < 50) { // Reduced kick range for better control
+            if (dist < 50) {
                 // Normalize direction and apply force
                 dx = dx / dist;
                 dy = dy / dist;
-                double kickPower = 15.0; // Increased kick power
+                double kickPower = 5.0;
                 ball.applyForce(dx * kickPower, dy * kickPower);
             }
         }
     }
+
+
 
     /**
      * Handles mouse drag events
@@ -511,13 +543,20 @@ public class GameCoordinator {
      */
     private void handleMouseDragged(MouseEvent event) {
         if (isDraggingRobot && selectedRobot != null) {
+            double borderWidth = arenaCanvas.getBorderWidth();
+            double fieldWidth = fieldManager.getWidth();
+            double fieldHeight = fieldManager.getHeight();
+
+            // Calculate new position
             double newX = event.getX() - dragStartX;
             double newY = event.getY() - dragStartY;
 
-            // Check field boundaries
-            if (!fieldManager.isOutOfBounds(newX, newY)) {
-                selectedRobot.setPosition(newX, newY);
-            }
+            // Keep robot within playable area
+            newX = Math.max(borderWidth, Math.min(newX, borderWidth + fieldWidth - selectedRobot.getWidth()));
+            newY = Math.max(borderWidth, Math.min(newY, borderWidth + fieldHeight - selectedRobot.getHeight()));
+
+            selectedRobot.setPosition(newX, newY);
+            render();
         }
     }
 
@@ -603,29 +642,37 @@ public class GameCoordinator {
     public void updateFieldDimensions(Double width, Double height) {
         updateLock.lock();
         try {
-            // Pause the game while updating dimensions
-            boolean wasRunning = gameController.isRunning();
+            // Validate dimensions
+            final double validWidth = Math.max(300, Math.min(width, 800));
+            final double validHeight = Math.max(200, Math.min(height, 600));
+
+            // Stop game temporarily if running
+            boolean wasRunning = gameRunning;
             if (wasRunning) {
-                gameController.pauseGame();
+                stopGame();
             }
 
-            fieldManager = new FieldManager(width, height, 20, 60);
-            gameController.loadConfig(new GameConfig() {
-                {
-                    setFieldWidth(width);
-                    setFieldHeight(height);
-                }
-            });
+            // Update field dimensions in all components
+            arenaCanvas.setFieldDimensions(validWidth, validHeight);
+            this.fieldManager = new FieldManager(validWidth, validHeight, arenaCanvas.getBorderWidth(), 60);
+            gameController.updateFieldDimensions(validWidth, validHeight);
 
-            // Resume if it was running
-            if (wasRunning) {
-                gameController.startGame();
+            // Reset teams to fit new dimensions
+            if (gameController.getRedTeam().size() > 0 || gameController.getBlueTeam().size() > 0) {
+                setupPlayerTeam();
+                setupOpposingTeam();
             }
+
+            // Restart game if it was running
+            if (wasRunning) {
+                startGame();
+            }
+
+            render();
         } finally {
             updateLock.unlock();
         }
     }
-
 
     public void addRobot(boolean isRedTeam, TeamRobot.RobotRole role) {
         // Calculate default position based on team

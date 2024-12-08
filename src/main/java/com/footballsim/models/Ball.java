@@ -19,48 +19,52 @@ public class Ball {
         this.dy = 0;
     }
 
+    /**
+     *
+     * @param fieldWidth
+     * @param fieldHeight
+     * @param borderWidth
+     */
     public void update(double fieldWidth, double fieldHeight, double borderWidth) {
         // Update position based on velocity
         x += dx;
         y += dy;
 
-        // Handle boundary collisions
+        // Calculate playable area boundaries
+        double minX = borderWidth;
+        double maxX = fieldWidth + borderWidth;
+        double minY = borderWidth;
+        double maxY = fieldHeight + borderWidth;
         double goalTop = (fieldHeight - 60) / 2 + borderWidth;
         double goalBottom = goalTop + 60;
 
-        // Left boundary (including goal)
-        if (x - radius < borderWidth) {
-            // Check if ball is at goal height
-            if (y < goalTop || y > goalBottom) {
-                x = borderWidth + radius;
-                dx = -dx * 0.8; // Bounce with energy loss
-            }
-        }
-
-        // Right boundary (including goal)
-        if (x + radius > fieldWidth + borderWidth) {
-            // Check if ball is at goal height
-            if (y < goalTop || y > goalBottom) {
-                x = fieldWidth + borderWidth - radius;
+        // Handle collisions with field boundaries
+        if (x - radius < minX) {  // Left boundary
+            if (y < goalTop || y > goalBottom) {  // Not in goal area
+                x = minX + radius;
                 dx = -dx * 0.8;
             }
         }
-
-        // Top and bottom boundaries
-        if (y - radius < borderWidth) {
-            y = borderWidth + radius;
+        if (x + radius > maxX) {  // Right boundary
+            if (y < goalTop || y > goalBottom) {  // Not in goal area
+                x = maxX - radius;
+                dx = -dx * 0.8;
+            }
+        }
+        if (y - radius < minY) {  // Top boundary
+            y = minY + radius;
             dy = -dy * 0.8;
         }
-        if (y + radius > fieldHeight + borderWidth) {
-            y = fieldHeight + borderWidth - radius;
+        if (y + radius > maxY) {  // Bottom boundary
+            y = maxY - radius;
             dy = -dy * 0.8;
         }
 
         // Apply friction
-        dx *= 0.99;
-        dy *= 0.99;
+        dx *= 0.98;
+        dy *= 0.98;
 
-        // Stop ball if moving very slowly
+        // Stop if moving very slowly
         if (Math.abs(dx) < 0.01) dx = 0;
         if (Math.abs(dy) < 0.01) dy = 0;
     }

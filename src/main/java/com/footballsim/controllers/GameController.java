@@ -20,10 +20,10 @@ public class GameController {
     private volatile double gameSpeed;
 
     // Field properties - immutable after construction
-    private final double fieldWidth;
-    private final double fieldHeight;
-    private final double borderWidth;
-    private final double goalWidth;
+    private  double fieldWidth;
+    private  double fieldHeight;
+    private  double borderWidth;
+    private  double goalWidth;
 
     // Game objects - protected by collections lock
     private final ReentrantLock collectionsLock = new ReentrantLock();
@@ -117,24 +117,40 @@ public class GameController {
      * Updates game state for current frame
      */
     public void update() {
-        if (!isRunning)
-            return;
+        if (!isRunning) return;
 
         stateLock.lock();
         try {
             collectionsLock.lock();
             try {
-                // Update ball with proper boundaries
+                // Update ball with current field dimensions
                 ball.update(fieldWidth, fieldHeight, borderWidth);
 
-                // Update physics for robots and obstacles
+                // Get all robots for collision handling
                 List<TeamRobot> allRobots = new ArrayList<>(redTeam);
                 allRobots.addAll(blueTeam);
+
+                // Update physics for all game objects
                 physicsEngine.update(ball, allRobots, obstacles, fieldWidth, fieldHeight);
 
-                // Update robots
-                updateTeam(redTeam, blueTeam);
-                updateTeam(blueTeam, redTeam);
+                // Update robot behaviors and keep within boundaries
+                for (TeamRobot robot : allRobots) {
+                    // Keep robots within field boundaries
+                    double x = robot.getX();
+                    double y = robot.getY();
+
+                    x = Math.max(borderWidth, Math.min(x, borderWidth + fieldWidth - robot.getWidth()));
+                    y = Math.max(borderWidth, Math.min(y, borderWidth + fieldHeight - robot.getHeight()));
+
+                    robot.setPosition(x, y);
+
+                    // Update robot behaviors
+                    if (robot.isRedTeam()) {
+                        robot.updateBehavior(ball, obstacles, redTeam, blueTeam);
+                    } else {
+                        robot.updateBehavior(ball, obstacles, blueTeam, redTeam);
+                    }
+                }
 
                 // Check for goals
                 checkForGoals();
@@ -207,6 +223,27 @@ public class GameController {
      */
     public List<String> getMatchHistory() {
         return Collections.unmodifiableList(matchHistory);
+    }
+
+    /**
+     *
+     * @param width
+     * @param height
+     */
+    public void updateFieldDimensions(double width, double height) {
+        stateLock.lock();
+        try {
+            this.fieldWidth = width;
+            this.fieldHeight = height;
+
+            // Reset ball position to new center
+            synchronized (ball) {
+                ball.setPosition(width / 2 + borderWidth, height / 2 + borderWidth);
+                ball.setVelocity(0, 0);
+            }
+        } finally {
+            stateLock.unlock();
+        }
     }
 
     /**

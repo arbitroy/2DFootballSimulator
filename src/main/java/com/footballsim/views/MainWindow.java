@@ -113,6 +113,14 @@ public class MainWindow {
                 });
             }
         });
+
+
+        configPanel.setOnDimensionsChanged((width, height) -> {
+            // Update field dimensions through the GameCoordinator
+            gameCoordinator.updateFieldDimensions(width, height);
+            // Need to explicitly request a render after dimension change
+            gameCoordinator.render();
+        });
         
         // Create toolbar with proper references
         toolBar = createToolBar();
@@ -225,24 +233,51 @@ public class MainWindow {
     private void layoutComponents() {
         root.getChildren().addAll(menuBar, toolBar);
 
-        // Create side panels
+        // Create side panels with scroll panes
+        ScrollPane leftScrollPane = new ScrollPane();
         VBox leftPanel = new VBox(10);
         leftPanel.setPadding(new Insets(10));
         leftPanel.getChildren().addAll(configPanel, settingsPanel);
+        leftPanel.setPrefWidth(200); // Set preferred width
+        leftScrollPane.setContent(leftPanel);
+        leftScrollPane.setFitToWidth(true);
+        leftScrollPane.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
 
+        ScrollPane rightScrollPane = new ScrollPane();
         VBox rightPanel = new VBox(10);
         rightPanel.setPadding(new Insets(10));
         rightPanel.getChildren().addAll(robotPanel, obstaclePanel);
+        rightPanel.setPrefWidth(200); // Set preferred width
+        rightScrollPane.setContent(rightPanel);
+        rightScrollPane.setFitToWidth(true);
+        rightScrollPane.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+
+        // Create center panel with proper sizing
+        StackPane centerPanel = new StackPane();
+        centerPanel.setStyle("-fx-background-color: #2f2f2f;");
+        centerPanel.setPadding(new Insets(20)); // Add some padding around the field
+
+        // Add canvas to center
+        centerPanel.getChildren().add(arenaCanvas);
+
+        // Keep canvas centered but not stretched
+        arenaCanvas.widthProperty().addListener((obs, old, newWidth) -> {
+            centerPanel.setPrefWidth(newWidth.doubleValue());
+        });
+        arenaCanvas.heightProperty().addListener((obs, old, newHeight) -> {
+            centerPanel.setPrefHeight(newHeight.doubleValue());
+        });
 
         // Main content layout
         mainContent = new BorderPane();
-        mainContent.setLeft(leftPanel);
-        mainContent.setCenter(arenaCanvas);
-        mainContent.setRight(rightPanel);
+        mainContent.setLeft(leftScrollPane);
+        mainContent.setCenter(centerPanel);
+        mainContent.setRight(rightScrollPane);
+
 
         root.getChildren().add(mainContent);
 
-        // Create scene
+        // Create scene with minimum size
         Scene scene = new Scene(root, 1200, 800);
         stage.setScene(scene);
         stage.setTitle("2D Football Simulator");

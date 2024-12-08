@@ -17,31 +17,26 @@ public class ArenaCanvas extends Canvas {
     private AnimationTimer gameLoop;
     private boolean isRunning = false;
 
+    /**
+     *
+     */
     public ArenaCanvas() {
         super();
         setWidth(fieldWidth + 2 * BORDER_WIDTH);
         setHeight(fieldHeight + 2 * BORDER_WIDTH);
-        
-        // Create ball at center of field
-        ball = new Ball(getWidth()/2, getHeight()/2);
-        
-        // Set up mouse event handlers
-        setupMouseHandlers();
-        
-        // Create game loop
-        createGameLoop();
-        
+
+        // Remove game loop creation and ball initialization
         drawField();
 
-        // Bind width and height to parent
+        // Keep these listeners for canvas resizing
         widthProperty().addListener((obs, oldVal, newVal) -> {
             drawField();
         });
+
         heightProperty().addListener((obs, oldVal, newVal) -> {
             drawField();
         });
 
-        // Make canvas focusable for input events
         setFocusTraversable(true);
     }
 
@@ -49,6 +44,10 @@ public class ArenaCanvas extends Canvas {
         setOnMousePressed(this::handleMousePressed);
     }
 
+    /**
+     *
+     * @param e
+     */
     private void handleMousePressed(MouseEvent e) {
         // Calculate force direction from ball to click
         double dx = e.getX() - ball.getX();
@@ -61,6 +60,10 @@ public class ArenaCanvas extends Canvas {
             ball.applyForce((dx/length) * forceMagnitude, (dy/length) * forceMagnitude);
         }
     }
+
+    /**
+     *
+     */
 
     private void createGameLoop() {
         gameLoop = new AnimationTimer() {
@@ -101,31 +104,30 @@ public class ArenaCanvas extends Canvas {
 
     private void drawField() {
         GraphicsContext gc = getGraphicsContext2D();
-        
+
         // Clear canvas
         gc.clearRect(0, 0, getWidth(), getHeight());
-        
+
         // Draw border
         gc.setFill(Color.DARKGREEN);
         gc.fillRect(0, 0, getWidth(), getHeight());
-        
+
         // Draw field
         gc.setFill(Color.LIGHTGREEN);
-        gc.fillRect(BORDER_WIDTH, BORDER_WIDTH, 
-                   fieldWidth, fieldHeight);
-        
+        gc.fillRect(BORDER_WIDTH, BORDER_WIDTH, fieldWidth, fieldHeight);
+
         // Draw center line
         gc.setStroke(Color.WHITE);
         gc.setLineWidth(2);
-        double centerX = getWidth() / 2;
+        double centerX = BORDER_WIDTH + fieldWidth/2;
         gc.strokeLine(centerX, BORDER_WIDTH, centerX, getHeight() - BORDER_WIDTH);
-        
+
         // Draw center circle
-        double centerY = getHeight() / 2;
+        double centerY = BORDER_WIDTH + fieldHeight/2;
         double circleRadius = 50;
-        gc.strokeOval(centerX - circleRadius, centerY - circleRadius, 
-                     circleRadius * 2, circleRadius * 2);
-        
+        gc.strokeOval(centerX - circleRadius, centerY - circleRadius,
+                circleRadius * 2, circleRadius * 2);
+
         // Draw goals
         drawGoal(gc, true);  // Left goal
         drawGoal(gc, false); // Right goal
@@ -151,4 +153,9 @@ public class ArenaCanvas extends Canvas {
 
     public double getFieldWidth() { return fieldWidth; }
     public double getFieldHeight() { return fieldHeight; }
+
+    public double getBorderWidth() {
+        return BORDER_WIDTH;
+    }
+
 }
