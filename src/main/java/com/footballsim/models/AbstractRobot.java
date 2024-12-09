@@ -86,7 +86,7 @@ public abstract class AbstractRobot extends AbstractArenaObject {
      * Creates sensor beams for obstacle detection
      * @return Array of Lines representing sensor beams
      */
-    protected Line[] createSensorBeams() {
+    public Line[] createSensorBeams() {
         Line[] beams = new Line[NUM_SENSORS];
         double[] center = getCenter();
         

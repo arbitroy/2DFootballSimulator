@@ -1,6 +1,7 @@
 package com.footballsim.controllers;
 
 import com.footballsim.models.*;
+import com.footballsim.utils.DebugVisualizer;
 import com.footballsim.utils.Line;
 import com.footballsim.views.*;
 import com.footballsim.formations.FormationManager;
@@ -42,7 +43,7 @@ public class GameCoordinator {
     private boolean isDraggingRobot;
     private double dragStartX, dragStartY;
     private final GameLoop gameLoop;
-    private boolean showDebugInfo;
+    private boolean showDebugInfo = false;
     private boolean gameRunning = false;
 
     private final ReentrantLock updateLock = new ReentrantLock();
@@ -309,15 +310,56 @@ public class GameCoordinator {
      * Renders the game state - called on JavaFX thread
      */
     public void render() {
-        GraphicsContext gc = arenaCanvas.getGraphicsContext2D();
-        clearCanvas(gc);
-        drawField(gc);
-        drawBall(gc);
-        drawRobots(gc);      // Make sure this is called
-        drawObstacles(gc);
+        try {
+            if (!Platform.isFxApplicationThread()) {
+                Platform.runLater(this::render);
+                return;
+            }
 
-        if (selectedRobot != null) {
-            drawSelectionIndicator(gc, selectedRobot);
+            GraphicsContext gc = arenaCanvas.getGraphicsContext2D();
+            clearCanvas(gc);
+            drawField(gc);
+
+            // Batch robot updates to minimize garbage collection
+            List<TeamRobot> redTeam = gameController.getRedTeam();
+            List<TeamRobot> blueTeam = gameController.getBlueTeam();
+
+            if (redTeam != null && blueTeam != null) {
+                drawBall(gc);
+                drawRobots(gc);
+                drawObstacles(gc);
+
+                if (showDebugInfo) {
+                    Ball ball = gameController.getBall();
+                    if (ball != null) {
+                        DebugVisualizer.drawBallDebug(gc, ball);
+                    }
+
+                    for (TeamRobot robot : redTeam) {
+                        if (robot != null) {
+                            DebugVisualizer.drawRobotDebug(gc, robot);
+                        }
+                    }
+                    for (TeamRobot robot : blueTeam) {
+                        if (robot != null) {
+                            DebugVisualizer.drawRobotDebug(gc, robot);
+                        }
+                    }
+
+                    for (AbstractArenaObject obj : gameController.getObstacles()) {
+                        if (obj instanceof Obstacle) {
+                            DebugVisualizer.drawObstacleDebug(gc, (Obstacle)obj);
+                        }
+                    }
+                }
+
+                if (selectedRobot != null) {
+                    drawSelectionIndicator(gc, selectedRobot);
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("Error in render: " + e.getMessage());
+            e.printStackTrace();
         }
     }
 
@@ -325,10 +367,11 @@ public class GameCoordinator {
     public void startGame() {
         updateLock.lock();
         try {
-            gameController.startGame();
-            gameLoop.start();
-            gameRunning = true;
-            System.out.println("Game started");
+            if (!gameRunning) {
+                gameController.startGame();
+                gameLoop.start();
+                gameRunning = true;
+            }
         } finally {
             updateLock.unlock();
         }
@@ -337,8 +380,11 @@ public class GameCoordinator {
     public void stopGame() {
         updateLock.lock();
         try {
-            gameLoop.stop();
-            gameRunning = false;
+            if (gameRunning) {
+                gameController.pauseGame();
+                gameLoop.stop();
+                gameRunning = false;
+            }
         } finally {
             updateLock.unlock();
         }
