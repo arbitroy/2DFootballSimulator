@@ -102,18 +102,34 @@ public class GameCoordinator {
             return false;
         });
 
-        this.obstaclePanel.setOnObstacleRemove((index) -> {
-            List<Obstacle> obstacles = new ArrayList<>();
-            for (AbstractArenaObject obj : gameController.getObstacles()) {
-                if (obj instanceof Obstacle) {
-                    obstacles.add((Obstacle) obj);
-                }
+        this.obstaclePanel.setOnObstacleAdd((type, width, height, color) -> {
+            // Get field dimensions
+            double borderWidth = arenaCanvas.getBorderWidth();
+            double fieldHeight = fieldManager.getHeight();
+
+            // Calculate penalty area Y coordinates
+            double penaltyAreaHeight = fieldHeight * 0.4;
+            double penaltyY = borderWidth + (fieldHeight - penaltyAreaHeight) / 2;
+
+            // Alternate between left and right penalty areas
+            boolean useLeftPenalty = gameController.getObstacles().size() % 2 == 0;
+
+            double x;
+            if (useLeftPenalty) {
+                // Place in left penalty area
+                x = borderWidth + fieldManager.getWidth() * 0.05;
+            } else {
+                // Place in right penalty area
+                x = borderWidth + fieldManager.getWidth() * 0.85;
             }
 
-            if (index >= 0 && index < obstacles.size()) {
-                Obstacle obstacle = obstacles.get(index);
-                gameController.removeObstacle(obstacle);
-                obstacleManager.removeObstacle(obstacle);
+            // Centered vertically in penalty area
+            double y = penaltyY + (penaltyAreaHeight - height) / 2;
+
+            Obstacle obstacle = obstacleManager.addObstacle(type, x, y, width, height);
+            if (obstacle != null) {
+                obstacle.setColor(color);
+                gameController.addObstacle(obstacle);
                 updateObstacleList();
                 return true;
             }
@@ -347,12 +363,6 @@ public class GameCoordinator {
                     for (TeamRobot robot : blueTeam) {
                         if (robot != null) {
                             DebugVisualizer.drawRobotDebug(gc, robot);
-                        }
-                    }
-
-                    for (AbstractArenaObject obj : gameController.getObstacles()) {
-                        if (obj instanceof Obstacle) {
-                            DebugVisualizer.drawObstacleDebug(gc, (Obstacle) obj);
                         }
                     }
                 }
@@ -590,34 +600,37 @@ public class GameCoordinator {
         if (selectedObstacle != null) {
             double newX = event.getX() - dragOffsetX;
             double newY = event.getY() - dragOffsetY;
-            
-            // Get field boundaries
+
+            // Get field boundaries from our existing components
             double borderWidth = arenaCanvas.getBorderWidth();
             double fieldWidth = fieldManager.getWidth();
             double fieldHeight = fieldManager.getHeight();
-            
+
             // Keep within bounds
-            newX = Math.max(borderWidth, 
+            newX = Math.max(borderWidth,
                     Math.min(newX, borderWidth + fieldWidth - selectedObstacle.getWidth()));
-            newY = Math.max(borderWidth, 
+            newY = Math.max(borderWidth,
                     Math.min(newY, borderWidth + fieldHeight - selectedObstacle.getHeight()));
-            
+
             // Check if position is valid (not in goals, etc)
             if (isValidObstaclePosition(newX, newY, selectedObstacle)) {
                 selectedObstacle.setPosition(newX, newY);
                 render();
             }
         } else if (isDraggingRobot && selectedRobot != null) {
-            // Existing robot dragging code
+            double borderWidth = arenaCanvas.getBorderWidth();
+            double fieldWidth = fieldManager.getWidth();
+            double fieldHeight = fieldManager.getHeight();
+
             double newX = event.getX() - dragStartX;
             double newY = event.getY() - dragStartY;
-            
-            // Keep robot within field boundaries (existing code)
-            newX = Math.max(borderWidth, Math.min(newX, 
+
+            // Keep robot within field boundaries
+            newX = Math.max(borderWidth, Math.min(newX,
                     borderWidth + fieldWidth - selectedRobot.getWidth()));
-            newY = Math.max(borderWidth, Math.min(newY, 
+            newY = Math.max(borderWidth, Math.min(newY,
                     borderWidth + fieldHeight - selectedRobot.getHeight()));
-            
+
             selectedRobot.setPosition(newX, newY);
             render();
         }
@@ -865,22 +878,38 @@ public class GameCoordinator {
      * @return true if obstacle was added successfully
      */
     public boolean addObstacle(Obstacle.ObstacleType type, double width, double height, Color color) {
-        // Calculate center of field for initial placement
-        double centerX = fieldManager.getBoundaries()[0].getXY()[0] + fieldManager.getWidth() / 2;
-        double centerY = fieldManager.getBoundaries()[0].getXY()[1] + fieldManager.getHeight() / 2;
+        // Get field dimensions
+        double borderWidth = arenaCanvas.getBorderWidth();
+        double fieldHeight = fieldManager.getHeight();
 
-        // Try to place obstacle at center first
-        Obstacle obstacle = obstacleManager.addObstacle(type,
-                centerX - width / 2, centerY - height / 2, width, height);
+        // Calculate penalty area Y coordinates (vertically centered)
+        double penaltyAreaHeight = fieldHeight * 0.4; // Using same scale as in drawField
+        double penaltyY = borderWidth + (fieldHeight - penaltyAreaHeight) / 2;
 
+        // Decide between left and right penalty area (alternate between them)
+        boolean useLeftPenalty = gameController.getObstacles().size() % 2 == 0;
+
+        double x;
+        if (useLeftPenalty) {
+            // Place in left penalty area
+            x = borderWidth + fieldManager.getWidth() * 0.05; // 5% from left edge
+        } else {
+            // Place in right penalty area
+            x = borderWidth + fieldManager.getWidth() * 0.85; // 85% from left edge
+        }
+
+        // Centered vertically in penalty area
+        double y = penaltyY + (penaltyAreaHeight - height) / 2;
+
+        Obstacle obstacle = obstacleManager.addObstacle(type, x, y, width, height);
         if (obstacle != null) {
             obstacle.setColor(color);
             gameController.addObstacle(obstacle);
+            updateObstacleList();
             return true;
         }
         return false;
     }
-
     /**
      * Removes an obstacle by index
      * 

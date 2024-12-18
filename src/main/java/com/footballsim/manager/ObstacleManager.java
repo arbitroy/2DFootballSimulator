@@ -42,8 +42,8 @@ public class ObstacleManager {
      * @return Created obstacle if placement successful, null if invalid placement
      */
     public Obstacle addObstacle(Obstacle.ObstacleType type, double x, double y,
-            double width, double height) {
-        // Validate placement within field bounds
+                                double width, double height) {
+        // Only validate that it's within field bounds
         if (!isValidPlacement(x, y, width, height)) {
             return null;
         }
@@ -52,11 +52,6 @@ public class ObstacleManager {
 
         // Check for collisions with existing obstacles
         if (checkCollisions(obstacle)) {
-            return null;
-        }
-
-        // Check goal area clearance
-        if (!checkGoalAreaClearance(obstacle)) {
             return null;
         }
 
