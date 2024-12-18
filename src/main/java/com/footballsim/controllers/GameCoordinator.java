@@ -2,16 +2,13 @@ package com.footballsim.controllers;
 
 import com.footballsim.models.*;
 import com.footballsim.utils.DebugVisualizer;
-import com.footballsim.utils.Line;
 import com.footballsim.views.*;
 import com.footballsim.formations.FormationManager;
-import javafx.animation.AnimationTimer;
 import javafx.application.Platform;
 import javafx.scene.input.MouseEvent;
 import javafx.scene.canvas.GraphicsContext;
 import javafx.scene.paint.Color;
 import javafx.scene.text.TextAlignment;
-import javafx.scene.transform.Rotate;
 import java.util.*;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -69,6 +66,14 @@ public class GameCoordinator {
         this.blueTeamFormation = new FormationManager(fieldManager, false);
 
         setupEventHandlers();
+
+        settingsPanel.setOnDurationChanged(seconds -> {
+            gameController.setMatchTimeSeconds(seconds);
+        });
+
+        settingsPanel.setOnSpeedChanged(speed -> {
+            gameController.setGameSpeed(speed);
+        });
 
         // Update UI components on JavaFX thread
         gameController.addEventListener(new GameController.GameEventListener() {
@@ -180,51 +185,7 @@ public class GameCoordinator {
         gc.setLineWidth(LINE_WIDTH);
     }
 
-    /**
-     * Draws a penalty area
-     */
-    private void drawPenaltyArea(GraphicsContext gc, FieldManager.Rectangle area) {
-        gc.setStroke(LINE_COLOR);
-        gc.strokeRect(area.x, area.y, area.width, area.height);
 
-        // Draw penalty spot
-        double spotRadius = 3;
-        gc.setFill(LINE_COLOR);
-        if (area == fieldManager.getLeftPenaltyArea()) {
-            gc.fillOval(fieldManager.getLeftPenaltySpot().x - spotRadius,
-                    fieldManager.getLeftPenaltySpot().y - spotRadius,
-                    spotRadius * 2, spotRadius * 2);
-        } else {
-            gc.fillOval(fieldManager.getRightPenaltySpot().x - spotRadius,
-                    fieldManager.getRightPenaltySpot().y - spotRadius,
-                    spotRadius * 2, spotRadius * 2);
-        }
-    }
-
-    /**
-     * Draws a goal
-     */
-    private void drawGoal(GraphicsContext gc, boolean isLeft) {
-        double goalDepth = 20;
-        double x = isLeft ? fieldManager.getBoundaries()[0].getXY()[0]
-                : fieldManager.getBoundaries()[1].getXY()[0];
-        double y = (fieldManager.getHeight() - 60) / 2 + fieldManager.getBoundaries()[0].getXY()[1];
-
-        gc.setStroke(LINE_COLOR);
-        gc.setLineWidth(LINE_WIDTH * 2); // Make goals more visible
-
-        if (isLeft) {
-            gc.strokeLine(x, y, x - goalDepth, y); // Top
-            gc.strokeLine(x - goalDepth, y, x - goalDepth, y + 60); // Back
-            gc.strokeLine(x - goalDepth, y + 60, x, y + 60); // Bottom
-        } else {
-            gc.strokeLine(x, y, x + goalDepth, y); // Top
-            gc.strokeLine(x + goalDepth, y, x + goalDepth, y + 60); // Back
-            gc.strokeLine(x + goalDepth, y + 60, x, y + 60); // Bottom
-        }
-
-        gc.setLineWidth(LINE_WIDTH); // Reset line width
-    }
 
     /**
      * Draws the ball

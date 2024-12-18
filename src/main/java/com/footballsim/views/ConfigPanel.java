@@ -3,7 +3,6 @@ package com.footballsim.views;
 import javafx.geometry.Insets;
 import javafx.scene.control.*;
 import javafx.scene.layout.GridPane;
-import javafx.util.converter.NumberStringConverter;
 import java.util.function.BiConsumer;
 
 public class ConfigPanel extends GridPane {

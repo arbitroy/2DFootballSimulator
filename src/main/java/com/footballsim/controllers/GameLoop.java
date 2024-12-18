@@ -1,9 +1,6 @@
 package com.footballsim.controllers;
 
 import javafx.animation.AnimationTimer;
-import javafx.application.Platform;
-import javafx.concurrent.Task;
-import java.util.concurrent.*;
 
 /**
  * Manages game updates and rendering in separate threads

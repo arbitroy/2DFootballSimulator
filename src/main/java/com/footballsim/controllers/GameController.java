@@ -7,6 +7,7 @@ import java.util.concurrent.locks.ReentrantLock;
 import com.footballsim.models.*;
 import com.footballsim.utils.PhysicsEngine;
 
+
 /**
  * Controls the game state and coordinates all game components.
  */
@@ -20,10 +21,10 @@ public class GameController {
     private volatile double gameSpeed;
 
     // Field properties - immutable after construction
-    private  double fieldWidth;
-    private  double fieldHeight;
-    private  double borderWidth;
-    private  double goalWidth;
+    private double fieldWidth;
+    private double fieldHeight;
+    private double borderWidth;
+    private double goalWidth;
 
     // Game objects - protected by collections lock
     private final ReentrantLock collectionsLock = new ReentrantLock();
@@ -88,7 +89,7 @@ public class GameController {
         stateLock.lock();
         try {
             isRunning = false;
-            matchTimeSeconds = 300; // 5 minutes default
+            matchTimeSeconds = 500; // 5 minutes default
             gameSpeed = 1.0;
             redScore = 0;
             blueScore = 0;
@@ -117,12 +118,23 @@ public class GameController {
      * Updates game state for current frame
      */
     public void update() {
-        if (!isRunning) return;
+        if (!isRunning)
+            return;
 
         stateLock.lock();
         try {
             collectionsLock.lock();
             try {
+                // Update match time based on game speed
+                if (matchTimeSeconds > 0) {
+                    matchTimeSeconds -= gameSpeed / 60; // Divide by 60 for ~60 FPS
+                    if (matchTimeSeconds <= 0) {
+                        matchTimeSeconds = 0;
+                        endGame();
+                    }
+                    notifyTimeUpdated();
+                }
+
                 // Update ball with current field dimensions
                 ball.update(fieldWidth, fieldHeight, borderWidth);
 
@@ -154,9 +166,6 @@ public class GameController {
 
                 // Check for goals
                 checkForGoals();
-
-                // Update match time
-                updateMatchTime();
             } finally {
                 collectionsLock.unlock();
             }
@@ -165,22 +174,6 @@ public class GameController {
         }
     }
 
-    /**
-     * Updates robots in a team
-     * 
-     * @param team      Team to update
-     * @param opponents Opposing team
-     */
-    private void updateTeam(List<TeamRobot> team, List<TeamRobot> opponents) {
-        collectionsLock.lock();
-        try {
-            for (TeamRobot robot : team) {
-                robot.updateBehavior(ball, obstacles, team, opponents);
-            }
-        } finally {
-            collectionsLock.unlock();
-        }
-    }
 
     /**
      * Checks if a goal has been scored
@@ -208,6 +201,7 @@ public class GameController {
 
     /**
      * Records a goal event in match history
+     * 
      * @param isRedTeam true if red team scored
      */
     private void recordGoal(boolean isRedTeam) {
@@ -219,6 +213,7 @@ public class GameController {
 
     /**
      * Gets the match history
+     * 
      * @return List of match events
      */
     public List<String> getMatchHistory() {
@@ -255,25 +250,25 @@ public class GameController {
             notifyTimeUpdated();
 
             if (matchTimeSeconds <= 0) {
-                matchTimeSeconds = 0;  // Ensure we don't go negative
+                matchTimeSeconds = 0; // Ensure we don't go negative
                 endGame();
             }
         }
     }
 
-
     /**
      * Sets the match duration in seconds
-     * @param duration Match duration in seconds
-     * @throws IllegalArgumentException if duration is less than 1 minute or more than 30 minutes
+     * 
+     * @param minutes Match duration in seconds
+     * @throws IllegalArgumentException if duration is less than 1 minute or more
+     *                                  than 30 minutes
      */
-    public void setMatchDuration(int duration) {
-        if (duration < 60 || duration > 1800) {
+    public void setMatchDuration(int minutes) {
+        if (minutes < 1 || minutes > 30) {
             throw new IllegalArgumentException("Match duration must be between 1 and 30 minutes");
         }
-        this.matchTimeSeconds = duration;
+        this.matchTimeSeconds = minutes * 60;
     }
-
 
     /**
      * Resets positions after a goal
