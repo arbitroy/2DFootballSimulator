@@ -4,6 +4,8 @@ import com.footballsim.models.*;
 import com.footballsim.utils.DebugVisualizer;
 import com.footballsim.views.*;
 import com.footballsim.formations.FormationManager;
+import com.footballsim.manager.ObstacleManager;
+
 import javafx.application.Platform;
 import javafx.scene.input.MouseEvent;
 import javafx.scene.canvas.GraphicsContext;
@@ -26,6 +28,8 @@ public class GameCoordinator {
     private final FormationManager blueTeamFormation;
     private final GameSettingsPanel settingsPanel;
     private final RobotControlPanel robotPanel;
+    private ObstacleManager obstacleManager;
+    private final ObstacleControlPanel obstaclePanel;
 
     // Constants for rendering
     private static final Color FIELD_COLOR = Color.LIGHTGREEN;
@@ -42,6 +46,8 @@ public class GameCoordinator {
     private final GameLoop gameLoop;
     private boolean showDebugInfo = false;
     private boolean gameRunning = false;
+    private Obstacle selectedObstacle;
+    private double dragOffsetX, dragOffsetY;
 
     private final ReentrantLock updateLock = new ReentrantLock();
 
@@ -49,51 +55,89 @@ public class GameCoordinator {
      * Creates a new game coordinator with the specified components
      */
     public GameCoordinator(ArenaCanvas arenaCanvas, GameSettingsPanel settingsPanel,
-            RobotControlPanel robotPanel) {
+            RobotControlPanel robotPanel, ObstacleControlPanel obstaclePanel) {
         this.arenaCanvas = arenaCanvas;
         this.settingsPanel = settingsPanel;
         this.robotPanel = robotPanel;
+        this.obstaclePanel = obstaclePanel;
 
-        // Initialize core components
+        // Initialize field manager first as other components depend on field dimensions
         this.fieldManager = new FieldManager(arenaCanvas.getFieldWidth(),
                 arenaCanvas.getFieldHeight(), 20, 60);
-                this.gameController = new GameController(
-                    arenaCanvas.getFieldWidth(),
-                    arenaCanvas.getFieldHeight()
-                );
+
+        // Initialize game controller
+        this.gameController = new GameController(
+                arenaCanvas.getFieldWidth(),
+                arenaCanvas.getFieldHeight());
+
+        // Initialize game loop
         this.gameLoop = new GameLoop(gameController, this);
+
+        // Initialize managers
+        this.obstacleManager = new ObstacleManager(
+                arenaCanvas.getFieldWidth(),
+                arenaCanvas.getFieldHeight(),
+                arenaCanvas.getBorderWidth());
+
+        // Initialize team formations
         this.redTeamFormation = new FormationManager(fieldManager, true);
         this.blueTeamFormation = new FormationManager(fieldManager, false);
 
-        setupEventHandlers();
+        // Set up obstacle panel callbacks
+        this.obstaclePanel.setOnObstacleAdd((type, width, height, color) -> {
+            // Calculate center of field for initial placement
+            double centerX = fieldManager.getBoundaries()[0].getXY()[0] + fieldManager.getWidth() / 2;
+            double centerY = fieldManager.getBoundaries()[0].getXY()[1] + fieldManager.getHeight() / 2;
 
-        settingsPanel.setOnDurationChanged(seconds -> {
-            gameController.setMatchTimeSeconds(seconds);
+            // Try to place obstacle at center
+            Obstacle obstacle = obstacleManager.addObstacle(type,
+                    centerX - width / 2, centerY - height / 2, width, height);
+
+            if (obstacle != null) {
+                obstacle.setColor(color);
+                gameController.addObstacle(obstacle);
+                updateObstacleList();
+                return true;
+            }
+            return false;
         });
 
-        settingsPanel.setOnSpeedChanged(speed -> {
-            gameController.setGameSpeed(speed);
+        this.obstaclePanel.setOnObstacleRemove((index) -> {
+            List<Obstacle> obstacles = new ArrayList<>();
+            for (AbstractArenaObject obj : gameController.getObstacles()) {
+                if (obj instanceof Obstacle) {
+                    obstacles.add((Obstacle) obj);
+                }
+            }
+
+            if (index >= 0 && index < obstacles.size()) {
+                Obstacle obstacle = obstacles.get(index);
+                gameController.removeObstacle(obstacle);
+                obstacleManager.removeObstacle(obstacle);
+                updateObstacleList();
+                return true;
+            }
+            return false;
         });
 
-        // Update UI components on JavaFX thread
+        // Set up game controller event listeners
         gameController.addEventListener(new GameController.GameEventListener() {
             @Override
             public void onGoalScored(boolean redTeam) {
                 Platform.runLater(() -> {
                     settingsPanel.updateScore(
-                        gameController.getRedScore(),
-                        gameController.getBlueScore()
-                    );
+                            gameController.getRedScore(),
+                            gameController.getBlueScore());
                 });
             }
-    
+
             @Override
             public void onTimeUpdated(int minutes, int seconds) {
                 Platform.runLater(() -> {
                     settingsPanel.updateTimer(minutes, seconds);
                 });
             }
-    
+
             @Override
             public void onGameEnd(boolean redTeamWon) {
                 Platform.runLater(() -> {
@@ -103,6 +147,8 @@ public class GameCoordinator {
             }
         });
 
+        // Set up event handlers
+        setupEventHandlers();
     }
 
     /**
@@ -135,11 +181,11 @@ public class GameCoordinator {
         // Draw center line - use field manager for positions
         gc.setStroke(LINE_COLOR);
         gc.setLineWidth(LINE_WIDTH);
-        double centerX = borderWidth + fieldWidth/2;
+        double centerX = borderWidth + fieldWidth / 2;
         gc.strokeLine(centerX, borderWidth, centerX, borderWidth + fieldHeight);
 
         // Draw center circle - scale radius based on field size
-        double centerY = borderWidth + fieldHeight/2;
+        double centerY = borderWidth + fieldHeight / 2;
         double circleRadius = Math.min(fieldWidth, fieldHeight) * 0.15; // Scale with field size
         gc.strokeOval(centerX - circleRadius, centerY - circleRadius,
                 circleRadius * 2, circleRadius * 2);
@@ -147,7 +193,7 @@ public class GameCoordinator {
         // Draw penalty areas - scale with field size
         double penaltyAreaWidth = fieldWidth * 0.15;
         double penaltyAreaHeight = fieldHeight * 0.4;
-        double penaltyAreaY = borderWidth + (fieldHeight - penaltyAreaHeight)/2;
+        double penaltyAreaY = borderWidth + (fieldHeight - penaltyAreaHeight) / 2;
 
         // Left penalty area
         gc.strokeRect(borderWidth, penaltyAreaY, penaltyAreaWidth, penaltyAreaHeight);
@@ -158,8 +204,8 @@ public class GameCoordinator {
 
         // Draw goals - scale with field size
         double goalWidth = Math.min(fieldHeight * 0.15, 60); // Scale but cap at 60
-        double goalDepth = Math.min(fieldWidth * 0.05, 20);  // Scale but cap at 20
-        drawGoal(gc, true, goalWidth, goalDepth);  // Left goal
+        double goalDepth = Math.min(fieldWidth * 0.05, 20); // Scale but cap at 20
+        drawGoal(gc, true, goalWidth, goalDepth); // Left goal
         drawGoal(gc, false, goalWidth, goalDepth); // Right goal
     }
 
@@ -173,19 +219,17 @@ public class GameCoordinator {
         double y = borderWidth + (fieldHeight - goalWidth) / 2;
 
         if (isLeft) {
-            gc.strokeLine(x, y, x - goalDepth, y);               // Top
+            gc.strokeLine(x, y, x - goalDepth, y); // Top
             gc.strokeLine(x - goalDepth, y, x - goalDepth, y + goalWidth); // Back
             gc.strokeLine(x - goalDepth, y + goalWidth, x, y + goalWidth); // Bottom
         } else {
-            gc.strokeLine(x, y, x + goalDepth, y);               // Top
+            gc.strokeLine(x, y, x + goalDepth, y); // Top
             gc.strokeLine(x + goalDepth, y, x + goalDepth, y + goalWidth); // Back
             gc.strokeLine(x + goalDepth, y + goalWidth, x, y + goalWidth); // Bottom
         }
 
         gc.setLineWidth(LINE_WIDTH);
     }
-
-
 
     /**
      * Draws the ball
@@ -266,7 +310,6 @@ public class GameCoordinator {
         arenaCanvas.setFocusTraversable(true);
     }
 
-
     /**
      * Renders the game state - called on JavaFX thread
      */
@@ -309,7 +352,7 @@ public class GameCoordinator {
 
                     for (AbstractArenaObject obj : gameController.getObstacles()) {
                         if (obj instanceof Obstacle) {
-                            DebugVisualizer.drawObstacleDebug(gc, (Obstacle)obj);
+                            DebugVisualizer.drawObstacleDebug(gc, (Obstacle) obj);
                         }
                     }
                 }
@@ -323,7 +366,6 @@ public class GameCoordinator {
             e.printStackTrace();
         }
     }
-
 
     public void startGame() {
         updateLock.lock();
@@ -369,8 +411,7 @@ public class GameCoordinator {
             // Update UI
             robotPanel.updateRobotCounts(
                     getRedTeamCount(),
-                    getBlueTeamCount()
-            );
+                    getBlueTeamCount());
 
             // Render the reset state
             render();
@@ -378,6 +419,7 @@ public class GameCoordinator {
             updateLock.unlock();
         }
     }
+
     /**
      * Sets up basic opposing team
      */
@@ -390,11 +432,11 @@ public class GameCoordinator {
 
         // Create basic formation - 1 goalkeeper, 2 defenders, 2 attackers
         double[][] positions = {
-                {fieldWidth * 0.9, fieldHeight * 0.5},     // Goalkeeper
-                {fieldWidth * 0.7, fieldHeight * 0.3},     // Defender 1
-                {fieldWidth * 0.7, fieldHeight * 0.7},     // Defender 2
-                {fieldWidth * 0.6, fieldHeight * 0.4},     // Attacker 1
-                {fieldWidth * 0.6, fieldHeight * 0.6}      // Attacker 2
+                { fieldWidth * 0.9, fieldHeight * 0.5 }, // Goalkeeper
+                { fieldWidth * 0.7, fieldHeight * 0.3 }, // Defender 1
+                { fieldWidth * 0.7, fieldHeight * 0.7 }, // Defender 2
+                { fieldWidth * 0.6, fieldHeight * 0.4 }, // Attacker 1
+                { fieldWidth * 0.6, fieldHeight * 0.6 } // Attacker 2
         };
 
         TeamRobot.RobotRole[] roles = {
@@ -410,7 +452,7 @@ public class GameCoordinator {
             TeamRobot robot = new TeamRobot(
                     fieldStartX + positions[i][0],
                     fieldStartY + positions[i][1],
-                    false  // Blue team
+                    false // Blue team
             );
             robot.setRole(roles[i]);
             gameController.addRobot(robot);
@@ -428,11 +470,11 @@ public class GameCoordinator {
         double fieldHeight = fieldManager.getHeight();
 
         double[][] positions = {
-                {fieldWidth * 0.1, fieldHeight * 0.5},     // Goalkeeper
-                {fieldWidth * 0.3, fieldHeight * 0.3},     // Defender 1
-                {fieldWidth * 0.3, fieldHeight * 0.7},     // Defender 2
-                {fieldWidth * 0.4, fieldHeight * 0.4},     // Attacker 1
-                {fieldWidth * 0.4, fieldHeight * 0.6}      // Attacker 2
+                { fieldWidth * 0.1, fieldHeight * 0.5 }, // Goalkeeper
+                { fieldWidth * 0.3, fieldHeight * 0.3 }, // Defender 1
+                { fieldWidth * 0.3, fieldHeight * 0.7 }, // Defender 2
+                { fieldWidth * 0.4, fieldHeight * 0.4 }, // Attacker 1
+                { fieldWidth * 0.4, fieldHeight * 0.6 } // Attacker 2
         };
 
         TeamRobot.RobotRole[] roles = {
@@ -448,7 +490,7 @@ public class GameCoordinator {
             TeamRobot robot = new TeamRobot(
                     fieldStartX + positions[i][0],
                     fieldStartY + positions[i][1],
-                    true  // Red team
+                    true // Red team
             );
             robot.setRole(roles[i]);
             gameController.addRobot(robot);
@@ -497,22 +539,25 @@ public class GameCoordinator {
      */
     private void handleMousePressed(MouseEvent event) {
         if (!gameRunning) return;
-
+    
         double x = event.getX();
         double y = event.getY();
-
-        // Get field boundaries
-        double borderWidth = arenaCanvas.getBorderWidth();
-        double fieldWidth = fieldManager.getWidth();
-        double fieldHeight = fieldManager.getHeight();
-
-        // Check if click is within playable area
-        if (x < borderWidth || x > borderWidth + fieldWidth ||
-                y < borderWidth || y > borderWidth + fieldHeight) {
-            return;
+    
+        // First check for obstacle selection
+        selectedObstacle = null;
+        for (AbstractArenaObject obj : gameController.getObstacles()) {
+            if (obj instanceof Obstacle) {
+                Obstacle obstacle = (Obstacle) obj;
+                if (isPointInObstacle(x, y, obstacle)) {
+                    selectedObstacle = obstacle;
+                    dragOffsetX = x - obstacle.getX();
+                    dragOffsetY = y - obstacle.getY();
+                    return;
+                }
+            }
         }
-
-        // Check for robot selection first
+    
+        // Then check for robot selection (existing code)
         TeamRobot clickedRobot = findRobotAt(x, y);
         if (clickedRobot != null) {
             selectedRobot = clickedRobot;
@@ -521,27 +566,20 @@ public class GameCoordinator {
             dragStartY = y - clickedRobot.getY();
             return;
         }
-
-        // Handle ball kick
+    
+        // Finally handle ball kicks (existing code)
         Ball ball = gameController.getBall();
         if (ball != null) {
-            // Calculate distance from click to ball
             double dx = x - ball.getX();
             double dy = y - ball.getY();
             double dist = Math.sqrt(dx * dx + dy * dy);
-
-            // Kick if clicked near the ball
+    
             if (dist < 50) {
-                // Normalize direction and apply force
-                dx = dx / dist;
-                dy = dy / dist;
                 double kickPower = 5.0;
-                ball.applyForce(dx * kickPower, dy * kickPower);
+                ball.applyForce((dx/dist) * kickPower, (dy/dist) * kickPower);
             }
         }
     }
-
-
 
     /**
      * Handles mouse drag events
@@ -549,23 +587,42 @@ public class GameCoordinator {
      * @param event Mouse event
      */
     private void handleMouseDragged(MouseEvent event) {
-        if (isDraggingRobot && selectedRobot != null) {
+        if (selectedObstacle != null) {
+            double newX = event.getX() - dragOffsetX;
+            double newY = event.getY() - dragOffsetY;
+            
+            // Get field boundaries
             double borderWidth = arenaCanvas.getBorderWidth();
             double fieldWidth = fieldManager.getWidth();
             double fieldHeight = fieldManager.getHeight();
-
-            // Calculate new position
+            
+            // Keep within bounds
+            newX = Math.max(borderWidth, 
+                    Math.min(newX, borderWidth + fieldWidth - selectedObstacle.getWidth()));
+            newY = Math.max(borderWidth, 
+                    Math.min(newY, borderWidth + fieldHeight - selectedObstacle.getHeight()));
+            
+            // Check if position is valid (not in goals, etc)
+            if (isValidObstaclePosition(newX, newY, selectedObstacle)) {
+                selectedObstacle.setPosition(newX, newY);
+                render();
+            }
+        } else if (isDraggingRobot && selectedRobot != null) {
+            // Existing robot dragging code
             double newX = event.getX() - dragStartX;
             double newY = event.getY() - dragStartY;
-
-            // Keep robot within playable area
-            newX = Math.max(borderWidth, Math.min(newX, borderWidth + fieldWidth - selectedRobot.getWidth()));
-            newY = Math.max(borderWidth, Math.min(newY, borderWidth + fieldHeight - selectedRobot.getHeight()));
-
+            
+            // Keep robot within field boundaries (existing code)
+            newX = Math.max(borderWidth, Math.min(newX, 
+                    borderWidth + fieldWidth - selectedRobot.getWidth()));
+            newY = Math.max(borderWidth, Math.min(newY, 
+                    borderWidth + fieldHeight - selectedRobot.getHeight()));
+            
             selectedRobot.setPosition(newX, newY);
             render();
         }
     }
+    
 
     /**
      * Handles mouse release events
@@ -573,6 +630,7 @@ public class GameCoordinator {
      * @param event Mouse event
      */
     private void handleMouseReleased(MouseEvent event) {
+        selectedObstacle = null;
         isDraggingRobot = false;
     }
 
@@ -683,18 +741,19 @@ public class GameCoordinator {
 
     public void addRobot(boolean isRedTeam, TeamRobot.RobotRole role) {
         // Calculate default position based on team
-        double x = isRedTeam ? 
-            fieldManager.getBoundaries()[0].getXY()[0] + fieldManager.getWidth() * 0.25 : // Red team left side
-            fieldManager.getBoundaries()[0].getXY()[0] + fieldManager.getWidth() * 0.75;  // Blue team right side
+        double x = isRedTeam ? fieldManager.getBoundaries()[0].getXY()[0] + fieldManager.getWidth() * 0.25 : // Red team
+                                                                                                             // left
+                                                                                                             // side
+                fieldManager.getBoundaries()[0].getXY()[0] + fieldManager.getWidth() * 0.75; // Blue team right side
         double y = fieldManager.getBoundaries()[0].getXY()[1] + fieldManager.getHeight() / 2;
-    
+
         // Create and configure new robot
         TeamRobot robot = new TeamRobot(x, y, isRedTeam);
         robot.setRole(role);
-    
+
         // Add to game controller
         gameController.addRobot(robot);
-    
+
         // Update formations
         if (isRedTeam) {
             redTeamFormation.assignPositions(gameController.getRedTeam());
@@ -702,11 +761,11 @@ public class GameCoordinator {
             blueTeamFormation.assignPositions(gameController.getBlueTeam());
         }
     }
-    
+
     public void removeRobot(int index) {
         List<TeamRobot> redTeam = gameController.getRedTeam();
         List<TeamRobot> blueTeam = gameController.getBlueTeam();
-        
+
         if (index < redTeam.size()) {
             // Remove from red team
             TeamRobot robot = redTeam.get(index);
@@ -722,15 +781,14 @@ public class GameCoordinator {
             }
         }
     }
-    
+
     public int getRedTeamCount() {
         return gameController.getRedTeam().size();
     }
-    
+
     public int getBlueTeamCount() {
         return gameController.getBlueTeam().size();
     }
-    
 
     /**
      * Toggles debug information display
@@ -796,4 +854,153 @@ public class GameCoordinator {
                 20, 60);
         render();
     }
+
+    /**
+     * Adds a new obstacle to the game
+     * 
+     * @param type   Type of obstacle
+     * @param width  Width of obstacle
+     * @param height Height of obstacle
+     * @param color  Color of obstacle
+     * @return true if obstacle was added successfully
+     */
+    public boolean addObstacle(Obstacle.ObstacleType type, double width, double height, Color color) {
+        // Calculate center of field for initial placement
+        double centerX = fieldManager.getBoundaries()[0].getXY()[0] + fieldManager.getWidth() / 2;
+        double centerY = fieldManager.getBoundaries()[0].getXY()[1] + fieldManager.getHeight() / 2;
+
+        // Try to place obstacle at center first
+        Obstacle obstacle = obstacleManager.addObstacle(type,
+                centerX - width / 2, centerY - height / 2, width, height);
+
+        if (obstacle != null) {
+            obstacle.setColor(color);
+            gameController.addObstacle(obstacle);
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Removes an obstacle by index
+     * 
+     * @param index Index of obstacle to remove
+     * @return true if obstacle was removed
+     */
+    public boolean removeObstacle(int index) {
+        List<Obstacle> obstacles = new ArrayList<>();
+        for (AbstractArenaObject obj : gameController.getObstacles()) {
+            if (obj instanceof Obstacle) {
+                obstacles.add((Obstacle) obj);
+            }
+        }
+
+        if (index >= 0 && index < obstacles.size()) {
+            Obstacle obstacle = obstacles.get(index);
+            gameController.removeObstacle(obstacle);
+            obstacleManager.removeObstacle(obstacle);
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Gets names of all current obstacles
+     * 
+     * @return List of obstacle names
+     */
+    public List<String> getObstacleNames() {
+        List<String> names = new ArrayList<>();
+        for (AbstractArenaObject obj : gameController.getObstacles()) {
+            if (obj instanceof Obstacle) {
+                Obstacle obstacle = (Obstacle) obj;
+                names.add(String.format("%s (%.0fx%.0f)",
+                        obstacle.getType().toString(),
+                        obstacle.getWidth(),
+                        obstacle.getHeight()));
+            }
+        }
+        return names;
+    }
+
+    /*
+     * Updates the obstacle list display
+     */
+    private void updateObstacleList() {
+        List<String> names = new ArrayList<>();
+        for (AbstractArenaObject obj : gameController.getObstacles()) {
+            if (obj instanceof Obstacle) {
+                Obstacle obstacle = (Obstacle) obj;
+                names.add(String.format("%s (%.0f,%.0f)",
+                        obstacle.getType().toString(),
+                        obstacle.getX(),
+                        obstacle.getY()));
+            }
+        }
+        obstaclePanel.updateObstacleList(names);
+    }
+
+    
+
+
+    /**
+ * Checks if point is within an obstacle
+ */
+private boolean isPointInObstacle(double x, double y, Obstacle obstacle) {
+    return x >= obstacle.getX() && 
+           x <= obstacle.getX() + obstacle.getWidth() &&
+           y >= obstacle.getY() && 
+           y <= obstacle.getY() + obstacle.getHeight();
+}
+
+/**
+ * Validates obstacle position
+ */
+private boolean isValidObstaclePosition(double x, double y, Obstacle obstacle) {
+    // Check distance from goals
+    double goalY = (fieldManager.getHeight() - 60) / 2 + arenaCanvas.getBorderWidth();
+    double leftGoalX = arenaCanvas.getBorderWidth();
+    double rightGoalX = arenaCanvas.getBorderWidth() + fieldManager.getWidth();
+    
+    // Don't allow obstacles too close to goals
+    double MIN_GOAL_DISTANCE = 50;
+    if (y + obstacle.getHeight() > goalY && y < goalY + 60) {
+        if (Math.abs(x - leftGoalX) < MIN_GOAL_DISTANCE || 
+            Math.abs(x + obstacle.getWidth() - rightGoalX) < MIN_GOAL_DISTANCE) {
+            return false;
+        }
+    }
+    
+    return true;
+}
+
+/**
+ * Finds safe initial position for new obstacle
+ */
+private double[] findSafeObstaclePosition(double width, double height) {
+    double borderWidth = arenaCanvas.getBorderWidth();
+    double fieldWidth = fieldManager.getWidth();
+    double fieldHeight = fieldManager.getHeight();
+    
+    // Try positions in each quadrant
+    double[][] positions = {
+        {borderWidth + fieldWidth * 0.25, borderWidth + fieldHeight * 0.25},
+        {borderWidth + fieldWidth * 0.75, borderWidth + fieldHeight * 0.25},
+        {borderWidth + fieldWidth * 0.25, borderWidth + fieldHeight * 0.75},
+        {borderWidth + fieldWidth * 0.75, borderWidth + fieldHeight * 0.75}
+    };
+    
+    for (double[] pos : positions) {
+        if (isValidObstaclePosition(pos[0], pos[1], 
+            new Obstacle(pos[0], pos[1], width, height, Obstacle.ObstacleType.WALL))) {
+            return pos;
+        }
+    }
+    
+    // Default to center if no safe position found
+    return new double[] {
+        borderWidth + (fieldWidth - width) / 2,
+        borderWidth + (fieldHeight - height) / 2
+    };
+}
 }

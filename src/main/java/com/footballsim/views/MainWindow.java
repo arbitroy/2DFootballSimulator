@@ -73,7 +73,8 @@ public class MainWindow {
         gameCoordinator = new GameCoordinator(
             arenaCanvas, 
             settingsPanel, 
-            robotPanel
+            robotPanel,
+            obstaclePanel
         );
         
         // Wire up start/pause buttons
