@@ -7,6 +7,9 @@ import com.footballsim.formations.FormationManager;
 import com.footballsim.manager.ObstacleManager;
 
 import javafx.application.Platform;
+import javafx.scene.control.Alert;
+import javafx.scene.control.ButtonBar;
+import javafx.scene.control.ButtonType;
 import javafx.scene.input.MouseEvent;
 import javafx.scene.canvas.GraphicsContext;
 import javafx.scene.paint.Color;
@@ -134,6 +137,16 @@ public class GameCoordinator {
                 return true;
             }
             return false;
+        });
+
+        // Add duration change handler
+        settingsPanel.setOnDurationChanged(minutes -> {
+            gameController.setMatchDuration(minutes / 60); // Convert seconds back to minutes
+        });
+
+        // Add speed change handler
+        settingsPanel.setOnSpeedChanged(speed -> {
+            gameController.setGameSpeed(speed);
         });
 
         // Set up game controller event listeners
@@ -694,12 +707,42 @@ public class GameCoordinator {
     }
 
     /**
-     * Shows game end dialog
-     * 
+     * Shows game end dialog with the match result
      * @param redTeamWon true if red team won
      */
     private void showGameEndDialog(boolean redTeamWon) {
-        // TODO: Implement game end dialog
+        Alert alert = new Alert(Alert.AlertType.INFORMATION);
+        alert.setTitle("Game Over");
+
+        // Set header and content based on result
+        if (gameController.getRedScore() == gameController.getBlueScore()) {
+            alert.setHeaderText("Match Draw!");
+            alert.setContentText(String.format("Final Score: Red %d - Blue %d",
+                    gameController.getRedScore(),
+                    gameController.getBlueScore()));
+        } else {
+            String winner = redTeamWon ? "Red" : "Blue";
+            alert.setHeaderText(winner + " Team Wins!");
+            alert.setContentText(String.format("Final Score: Red %d - Blue %d\n\nCongratulations %s team!",
+                    gameController.getRedScore(),
+                    gameController.getBlueScore(),
+                    winner));
+        }
+
+        // Add buttons
+        ButtonType playAgainButton = new ButtonType("Play Again");
+        ButtonType exitButton = new ButtonType("Exit", ButtonBar.ButtonData.CANCEL_CLOSE);
+        alert.getButtonTypes().setAll(playAgainButton, exitButton);
+
+        // Handle button clicks
+        alert.showAndWait().ifPresent(response -> {
+            if (response == playAgainButton) {
+                resetGame();
+            } else {
+                // Exit button clicked
+                Platform.exit();
+            }
+        });
     }
 
     /**

@@ -16,6 +16,8 @@ public class GameController {
     private final ReentrantLock stateLock = new ReentrantLock();
     private volatile boolean isRunning;
     private volatile int matchTimeSeconds;
+
+    private int totalMatchDuration;
     private volatile int redScore;
     private volatile int blueScore;
     private volatile double gameSpeed;
@@ -89,7 +91,8 @@ public class GameController {
         stateLock.lock();
         try {
             isRunning = false;
-            matchTimeSeconds = 500; // 5 minutes default
+            totalMatchDuration = 300; // 5 minutes default
+            matchTimeSeconds = 0;     // Start from 0
             gameSpeed = 1.0;
             redScore = 0;
             blueScore = 0;
@@ -125,11 +128,12 @@ public class GameController {
         try {
             collectionsLock.lock();
             try {
+
                 // Update match time based on game speed
-                if (matchTimeSeconds > 0) {
-                    matchTimeSeconds -= gameSpeed / 60; // Divide by 60 for ~60 FPS
-                    if (matchTimeSeconds <= 0) {
-                        matchTimeSeconds = 0;
+                if (matchTimeSeconds < totalMatchDuration) {
+                    matchTimeSeconds += gameSpeed;  // Remove the /60 division to count in full seconds
+                    if (matchTimeSeconds >= totalMatchDuration) {
+                        matchTimeSeconds = totalMatchDuration;
                         endGame();
                     }
                     notifyTimeUpdated();
@@ -267,7 +271,8 @@ public class GameController {
         if (minutes < 1 || minutes > 30) {
             throw new IllegalArgumentException("Match duration must be between 1 and 30 minutes");
         }
-        this.matchTimeSeconds = minutes * 60;
+        this.totalMatchDuration = minutes * 60;
+        this.matchTimeSeconds = 0;  // Reset current time when duration changes
     }
 
     /**
